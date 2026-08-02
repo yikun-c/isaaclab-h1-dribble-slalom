@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+artifacts/
+runs/
+*.raw.mp4
+scripts/compose_evolution_video.py
+scripts/compose_continuous_video.py
+
+.idea/
+.vscode/
+Thumbs.db

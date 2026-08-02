@@ -1,0 +1,19 @@
+{
+  "active_poles": 4,
+  "checkpoint": "checkpoints/model_3420.pt",
+  "completed_episodes": 4096,
+  "fall_rate": 0.007568359375,
+  "falls": 31,
+  "gate_passes": 16280,
+  "goal_rate": 0.979736328125,
+  "goals": 4013,
+  "maximum_gate_passes": 4,
+  "mean_gate_passes": 3.974609375,
+  "requested_episodes": 4096,
+  "route_success_rate": 0.981201171875,
+  "route_successes": 4019,
+  "seed": 2026,
+  "stage": 3,
+  "wrong_route_rate": 0.01123046875,
+  "wrong_routes": 46
+}
