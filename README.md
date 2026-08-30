@@ -24,6 +24,7 @@ The deterministic CPU core and bounded development integration are complete and 
 - Corrected **Qwen3.5 + local-memory execution guard** hybrid: 3/3 fixed development mazes completed, 398 decisions, 100% valid JSON, zero mean collisions, 1.67 mean repeated states, and 199 logged executor overrides. This is not a pure-LLM claim and not a final-test result.
 - The official H1 low-level policy was verified inside 100 collidable maze walls. A three-decision physical bridge used real Qwen output `MOVE_FORWARD → TURN_RIGHT → MOVE_FORWARD`, with measured H1 macro completion from logical `(0,0)` to `(1,1)`.
 - Versioned video evidence: a 27-second SFT/evaluation clip and a 28.25-second development-log replay. Both are truth-labelled and visually inspected; neither is the final film.
+- A 116.27-second, silent evidence rough cut combines the H1 bridge data card, training/ablation evidence, baseline comparison, A* layout prototype, and guarded development replay. It is versioned under `artifacts/video/` and explicitly not presented as the final 8–12 minute film.
 
 Windows virtual-memory recovery is complete. The remaining environment blocker is RTX camera/recorder native-DLL startup in visible Isaac sessions; headless physics/planner bridge tests remain reproducible. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for precise evidence and recovery.
 

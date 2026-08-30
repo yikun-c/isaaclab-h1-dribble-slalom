@@ -253,6 +253,12 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 - Preflight proved `hdf5.dll`, `hdf5_hl.dll`, and `generic_mo_io.dll` are loadable from Isaac's local sensor directory when that directory is supplied explicitly. A manual preload conflicted with h5py (`WinError 127`) before app startup, so it was removed. The final directory-only v4 attempt still hit the same `generic_model_output` dependency failure before the project code ran.
 - Decision: do not launch further visible/camera Isaac sessions until the RTX sensor native dependency stack is repaired or the host is rebooted/revalidated. The unmodified headless H1/physics/planner bridge does not require this extension and remains reproducible. No failed MP4 is used in the edit.
 
+### Evidence rough cut and GitHub branch — 2026-08-31
+
+- `artifacts\video\baseline_comparison_v1.mp4` (9.000s) is an exact 200-development-maze baseline card for A*, DFS, and the right-hand rule. `artifacts\video\h1_bridge_evidence_v2.mp4` (9.000s) is an exact three-decision H1 physical-bridge data card; v1 was rejected for text overlap and preserved.
+- `artifacts\video\llm_h1_maze_evidence_cut_v1.mp4` is a versioned 116.267-second, 1280×720, 30fps H.264 evidence rough cut (2,744,908 bytes), composed only from independently truth-labelled source clips: H1 bridge card, training/ablation v3, baseline card, A* oracle layout prototype, and Qwen-plus-guard development replay. Boundary frames and a mid-film A* frame were visually inspected; FFmpeg found no black interval. It intentionally has no audio and is **not** the final 8–12 minute film.
+- GitHub: local branch `feature/llm-maze-agent` was pushed and verified at `https://github.com/yikun-c/isaaclab-h1-dribble-slalom.git`, commit `2f625f88bc3a5e0c0779c70fe23f18680e1697b0`. `origin` was updated from the redirecting predecessor URL to this canonical remote. No pull request or default-branch change was made.
+
 ### Current task and next recovery-safe command
 
 1. Diagnose the intermittent visible-D3D12 Kit/DLL startup failure before any further physical-camera attempt. Preserve the rejected v2 output and use it only as failure evidence, never as a final shot.
