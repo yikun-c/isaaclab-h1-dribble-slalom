@@ -216,8 +216,8 @@ def main() -> None:
             term.vel_command_b[:] = target
             with torch.inference_mode():
                 joint_actions = locomotion(observations)
-                observations, _, terminated, truncated, _ = wrapped.step(joint_actions)
-            if bool(terminated.any() or truncated.any()):
+                observations, _, done, _ = wrapped.step(joint_actions)
+            if bool(done.any()):
                 raise RuntimeError("H1 environment terminated during a macro action; refusing to stitch reset state into one trajectory")
             if not torch.isfinite(env.scene["robot"].data.root_pos_w).all():
                 raise RuntimeError("non-finite H1 root state")
