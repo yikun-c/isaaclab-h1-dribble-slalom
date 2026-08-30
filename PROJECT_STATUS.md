@@ -264,6 +264,7 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 
 - Voiceover source is versioned at `assets\video\evidence_cut_v1_voiceover.json`. `scripts\render_evidence_voiceover.py` generated five Chinese `zh-CN-XiaoxiaoNeural` segments and recorded raw/output durations in `artifacts\audio\evidence_cut_v1\manifest.json`; each output was tempo-matched to its evidence segment.
 - `artifacts\video\llm_h1_maze_evidence_cut_v2_voiceover.mp4` is 116.267 seconds, 1280×720, 30fps H.264 plus AAC 24kHz mono (4,294,455 bytes). `scripts\mux_evidence_cut_voiceover.py` muxed only the exact versioned narration segments. FFprobe verifies both streams and matched duration. Silence detection found only normal sentence pauses (maximum ~0.88s) plus a 0.62s ending tail, with no long unexplained silence. This is an accepted narrated **rough cut**, still not the final 8–12 minute film or final subtitle/QC deliverable.
+- `assets\video\evidence_cut_v1_subtitles.srt` is the versioned Chinese subtitle source. `artifacts\video\llm_h1_maze_evidence_cut_v3_voiceover_subs.mp4` adds a selectable Simplified-Chinese `mov_text` stream while retaining the same 116.267s H.264/AAC streams (4,295,772 bytes). Extracting the stream back to SRT reproduced all five timed entries exactly. This improves accessibility of the rough cut but does not turn it into the final film.
 
 ### Current task and next recovery-safe command
 
