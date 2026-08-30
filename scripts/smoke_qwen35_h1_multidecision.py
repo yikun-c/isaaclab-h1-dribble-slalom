@@ -49,8 +49,11 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Run a bounded multi-decision Qwen3.5 H1 maze bridge smoke.")
 parser.add_argument("--seed", type=int, default=2026)
+parser.add_argument("--cell-size", type=float, default=1.8, help="Physical maze cell width in metres.")
 parser.add_argument("--decisions", type=int, default=3)
 parser.add_argument("--max-ticks-per-macro", type=int, default=1100)
+parser.add_argument("--execution-guard", action="store_true", help="Use the labelled local-memory execution guard.")
+parser.add_argument("--guard-revisit-threshold", type=int, default=2)
 parser.add_argument("--adapter-dir", type=Path, default=PROJECT_ROOT / "runs/qwen35_sft/2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1/adapter")
 parser.add_argument("--model-dir", type=Path, default=PROJECT_ROOT / "models/qwen3_5_2b")
 parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "artifacts/h1/qwen35_h1_multidecision_smoke_v2.json")
@@ -82,7 +85,7 @@ def planner_input(task, state, memory):
     from maze_agent import observe, sense_physical_maze
 
     local = observe(task, state)
-    ranges = sense_physical_maze(task, state.position, state.heading)
+    ranges = sense_physical_maze(task, state.position, state.heading, cell_size=args.cell_size)
     openings = ranges.open_by_direction(minimum_clearance_m=1.0)
     return {
         "instruction": task.instruction,
@@ -119,6 +122,7 @@ def main() -> None:
         TopologicalMemory,
         build_task,
         decision_event,
+        guard_action,
         parse_planner_response,
         sense_physical_maze,
         step,
@@ -128,10 +132,10 @@ def main() -> None:
     from maze_agent.physical_maze import maze_wall_specs
     from maze_agent.sft import SYSTEM_PROMPT
 
-    if args.decisions <= 0 or args.max_ticks_per_macro <= 0:
-        raise ValueError("decision and macro tick budgets must be positive")
+    if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2:
+        raise ValueError("decision/macro budgets and cell-size must be positive")
     task = build_task(9, 9, args.seed)
-    walls = maze_wall_specs(task)
+    walls = maze_wall_specs(task, cell_size=args.cell_size)
     for spec in walls:
         wall_cfg = sim_utils.CuboidCfg(
             size=spec.size,
@@ -150,7 +154,10 @@ def main() -> None:
     cfg.scene.terrain.terrain_generator = None
     cfg.curriculum = None
     cfg.sim.device = args.device or "cuda:0"
-    cfg.episode_length_s = 60.0
+    # Macro completion can take hundreds of 20ms environment steps. Size the
+    # episode from the requested bounded run so a silent time-limit reset can
+    # never masquerade as continuous physical navigation.
+    cfg.episode_length_s = max(60.0, args.decisions * (args.max_ticks_per_macro + 12) * 0.02 * 1.1)
     cfg.commands.base_velocity.resampling_time_range = (1000.0, 1000.0)
     cfg.commands.base_velocity.rel_standing_envs = 0.0
     cfg.commands.base_velocity.rel_heading_envs = 0.0
@@ -209,7 +216,9 @@ def main() -> None:
             term.vel_command_b[:] = target
             with torch.inference_mode():
                 joint_actions = locomotion(observations)
-                observations, _, _, _ = wrapped.step(joint_actions)
+                observations, _, terminated, truncated, _ = wrapped.step(joint_actions)
+            if bool(terminated.any() or truncated.any()):
+                raise RuntimeError("H1 environment terminated during a macro action; refusing to stitch reset state into one trajectory")
             if not torch.isfinite(env.scene["robot"].data.root_pos_w).all():
                 raise RuntimeError("non-finite H1 root state")
             simulation_ticks += 1
@@ -247,8 +256,15 @@ def main() -> None:
                 output_ids = model.generate(**inputs, max_new_tokens=64, do_sample=False)
                 latency_ms = (time.perf_counter() - started) * 1000.0
             raw = processor.decode(output_ids[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True)
-            decision = parse_planner_response(raw)
-            capture_context.update({"decision": decision_index + 1, "proposed": decision.action.value, "executed": decision.action.value, "guard": None})
+            proposed = parse_planner_response(raw)
+            decision = proposed
+            guard_reason = None
+            if args.execution_guard:
+                guarded = guard_action(task, state, memory, proposed.action, args.guard_revisit_threshold)
+                guard_reason = guarded.reason
+                if guarded.overridden:
+                    decision = replace(proposed, action=guarded.action, fallback_reason=f"memory_guard:{guarded.reason}")
+            capture_context.update({"decision": decision_index + 1, "proposed": proposed.action.value, "executed": decision.action.value, "guard": guard_reason})
             before_physical = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
             macro_ticks = 0
             physical_completed = False
@@ -268,10 +284,10 @@ def main() -> None:
                     macro_ticks += 1
                     current = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
                     progress = direction * ((current[0] - start_x) * math.cos(world_yaw) + (current[1] - start_y) * math.sin(world_yaw))
-                    if progress >= 0.90:
+                    if progress >= args.cell_size / 2.0:
                         physical_completed = True
                         break
-                macro_detail = {"criterion": "signed_translation_m>=0.90", "signed_translation_m": progress, "expected_world_yaw": world_yaw}
+                macro_detail = {"criterion": f"signed_translation_m>={args.cell_size / 2.0:.2f}", "signed_translation_m": progress, "expected_world_yaw": world_yaw}
             else:
                 logical_after_turn = step(task, state, decision.action)
                 target_yaw = GRID_HEADING_WORLD_YAW[logical_after_turn.heading]
@@ -292,7 +308,10 @@ def main() -> None:
                 apply_velocity((0.0, 0.0, 0.0))
             logical_after = step(task, state, decision.action) if physical_completed else replace(state, last_result="physical_macro_incomplete")
             event = decision_event(task, state, decision, logical_after, memory_before, raw, latency_ms=latency_ms, token_count=None)
-            ranges = sense_physical_maze(task, state.position, state.heading)
+            if args.execution_guard:
+                event["planner"]["proposed_action"] = proposed.action.value
+                event["planner"]["guard_reason"] = guard_reason
+            ranges = sense_physical_maze(task, state.position, state.heading, cell_size=args.cell_size)
             event["physical_wall_ranges_m"] = {"front": ranges.front_m, "left": ranges.left_m, "right": ranges.right_m, "rear": ranges.rear_m}
             event["physical_macro"] = {
                 "completed": physical_completed,
@@ -312,6 +331,9 @@ def main() -> None:
             "truth_label": "development-only bounded multi-decision Qwen3.5-to-H1 macro bridge; not a sealed or completed maze-navigation evaluation",
             "maze_seed": args.seed,
             "requested_decisions": args.decisions,
+            "execution_interface": "Qwen plus local-memory guard" if args.execution_guard else "Qwen proposed action directly executed",
+            "guard_revisit_threshold": args.guard_revisit_threshold if args.execution_guard else None,
+            "guard_overrides": sum(event["planner"].get("guard_reason") is not None for event in events),
             "completed_macros": sum(event["physical_macro"]["completed"] for event in events),
             "final_logical_position": list(state.position),
             "final_logical_heading": state.heading.value,
@@ -319,6 +341,7 @@ def main() -> None:
             "final_logical_result": state.last_result,
             "events": events,
             "walls": len(walls),
+            "physical_cell_size_m": args.cell_size,
             "spawned_walls": spawned_walls,
             "model_dir": str(args.model_dir.resolve()),
             "adapter_dir": str(args.adapter_dir.resolve()),
@@ -352,5 +375,22 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+    except Exception as exc:
+        failure_path = args.output.with_suffix(".failure.json")
+        write_json_atomic(
+            failure_path,
+            {
+                "status": "failed",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "output_target": str(args.output.resolve()),
+                "seed": args.seed,
+                "cell_size_m": args.cell_size,
+                "decisions": args.decisions,
+                "max_ticks_per_macro": args.max_ticks_per_macro,
+                "execution_guard": args.execution_guard,
+            },
+        )
+        raise
     finally:
         simulation_app.close()
