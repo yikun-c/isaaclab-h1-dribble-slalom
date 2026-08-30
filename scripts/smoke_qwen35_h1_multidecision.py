@@ -16,6 +16,29 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+# On Windows, visible Isaac/recorder extensions can load HDF5 before Python's
+# normal dependency path is resolved. Preloading h5py matches the previously
+# successful recorder path and avoids the h5py._errors DLL startup failure.
+import h5py  # noqa: F401
+
+
+SENSOR_DLL_DIRECTORY_HANDLE = None
+
+
+def preload_windows_rtx_sensor_dlls() -> None:
+    """Make Isaac's optional RGB sensor DLL search path explicit on Windows."""
+    if os.name != "nt":
+        return
+    directory = Path(r"D:\IsaacLab\.venv\Lib\site-packages\isaacsim\kit\dev\libs\sensors\generic_model_output\bin")
+    if not directory.is_dir():
+        return
+    global SENSOR_DLL_DIRECTORY_HANDLE
+    # Retain the directory handle for process lifetime. Do not manually load
+    # HDF5 here: h5py has already selected its compatible copy.
+    SENSOR_DLL_DIRECTORY_HANDLE = os.add_dll_directory(str(directory))
+
+
+preload_windows_rtx_sensor_dlls()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "runtime" / "qwen35_transformers"))
@@ -31,8 +54,12 @@ parser.add_argument("--max-ticks-per-macro", type=int, default=1100)
 parser.add_argument("--adapter-dir", type=Path, default=PROJECT_ROOT / "runs/qwen35_sft/2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1/adapter")
 parser.add_argument("--model-dir", type=Path, default=PROJECT_ROOT / "models/qwen3_5_2b")
 parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "artifacts/h1/qwen35_h1_multidecision_smoke_v2.json")
+parser.add_argument("--video-output", type=Path, help="Optional versioned visible-D3D12 recording path.")
+parser.add_argument("--capture-every-ticks", type=int, default=2)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+if args.video_output:
+    args.enable_cameras = True
 app_launcher = AppLauncher(args)
 simulation_app = app_launcher.app
 
@@ -129,9 +156,14 @@ def main() -> None:
         "pose_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "yaw": (0.0, 0.0)},
         "velocity_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0), "roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0)},
     }
-    env = ManagerBasedRLEnv(cfg)
+    env = ManagerBasedRLEnv(cfg, render_mode="rgb_array" if args.video_output else None)
     wrapped = RslRlVecEnvWrapper(env)
     model = base = None
+    writer = None
+    temporary_video = None
+    recorded_frames = 0
+    simulation_ticks = 0
+    capture_context = {"decision": 0, "proposed": "等待模型", "executed": "等待模型", "guard": None}
     try:
         runner = OnPolicyRunner(wrapped, H1RoughPPORunnerCfg().to_dict(), log_dir=None, device=env.device)
         runner.load(checkpoint)
@@ -150,8 +182,26 @@ def main() -> None:
         memory = TopologicalMemory()
         events: list[dict] = []
 
+        if args.video_output:
+            if args.capture_every_ticks <= 0:
+                raise ValueError("capture-every-ticks must be positive")
+            import cv2
+            import numpy as np
+            from PIL import Image, ImageDraw, ImageFont
+
+            font_path = Path(r"C:\Windows\Fonts\msyh.ttc")
+            if not font_path.is_file():
+                raise FileNotFoundError(font_path)
+            title_font = ImageFont.truetype(str(font_path), 24)
+            body_font = ImageFont.truetype(str(font_path), 17)
+            args.video_output.parent.mkdir(parents=True, exist_ok=True)
+            temporary_video = args.video_output.with_suffix(".raw.mp4")
+            # Do not write black Hydra warm-up buffers to an otherwise valid MP4.
+            for _ in range(60):
+                env.render(recompute=True)
+
         def apply_velocity(target_values: tuple[float, float, float]):
-            nonlocal observations
+            nonlocal observations, writer, recorded_frames, simulation_ticks
             target = torch.tensor([target_values], device=env.device, dtype=term.vel_command_b.dtype)
             term.vel_command_b[:] = target
             with torch.inference_mode():
@@ -159,6 +209,26 @@ def main() -> None:
                 observations, _, _, _ = wrapped.step(joint_actions)
             if not torch.isfinite(env.scene["robot"].data.root_pos_w).all():
                 raise RuntimeError("non-finite H1 root state")
+            simulation_ticks += 1
+            if args.video_output and (recorded_frames == 0 or simulation_ticks % args.capture_every_ticks == 0):
+                rgb = env.render(recompute=True)
+                if rgb is not None and rgb.size:
+                    image = Image.fromarray(rgb)
+                    if float(np.asarray(image).mean()) >= 8.0:
+                        if image.size != (1280, 720):
+                            image = image.resize((1280, 720), Image.Resampling.LANCZOS)
+                        draw = ImageDraw.Draw(image, "RGBA")
+                        draw.rectangle((0, 0, 1280, 94), fill=(17, 23, 30, 225))
+                        draw.text((20, 9), "实体迷宫 · Qwen3.5 → H1 三决策桥接", font=title_font, fill=(246, 248, 250, 255))
+                        draw.text((20, 44), f"决策 {capture_context['decision']}  提议 {capture_context['proposed']}  执行 {capture_context['executed']}", font=body_font, fill=(165, 219, 235, 255))
+                        guard_text = capture_context["guard"] or "无守卫覆盖（物理宏动作仍需阈值完成）"
+                        draw.text((20, 68), f"{guard_text}  |  开发 smoke，非完整迷宫成功", font=body_font, fill=(248, 181, 72, 255))
+                        if writer is None:
+                            writer = cv2.VideoWriter(str(temporary_video), cv2.VideoWriter_fourcc(*"mp4v"), 30, (1280, 720))
+                            if not writer.isOpened():
+                                raise RuntimeError("could not open physical bridge video writer")
+                        writer.write(cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR))
+                        recorded_frames += 1
 
         for decision_index in range(args.decisions):
             if state.terminated:
@@ -175,6 +245,7 @@ def main() -> None:
                 latency_ms = (time.perf_counter() - started) * 1000.0
             raw = processor.decode(output_ids[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True)
             decision = parse_planner_response(raw)
+            capture_context.update({"decision": decision_index + 1, "proposed": decision.action.value, "executed": decision.action.value, "guard": None})
             before_physical = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
             macro_ticks = 0
             physical_completed = False
@@ -248,10 +319,26 @@ def main() -> None:
             "adapter_dir": str(args.adapter_dir.resolve()),
             "locomotion_checkpoint": str(checkpoint),
         }
+        if writer is not None:
+            writer.release()
+            writer = None
+            assert temporary_video is not None
+            temporary_video.replace(args.video_output)
+            report["video"] = {
+                "output": str(args.video_output.resolve()),
+                "frames": recorded_frames,
+                "fps": 30,
+                "duration_seconds": recorded_frames / 30.0,
+                "truth_label": "three-decision Qwen3.5-to-H1 physical development bridge; not completed maze navigation",
+            }
+        elif args.video_output:
+            raise RuntimeError("camera recorder produced no non-black frame")
         write_json_atomic(args.output, report)
         print(json.dumps({key: value for key, value in report.items() if key != "events"}, ensure_ascii=False, sort_keys=True), flush=True)
     finally:
         del model, base
+        if writer is not None:
+            writer.release()
         wrapped.close()
         import torch
         torch.cuda.empty_cache()
