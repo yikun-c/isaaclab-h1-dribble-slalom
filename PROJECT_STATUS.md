@@ -253,6 +253,11 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 - Preflight proved `hdf5.dll`, `hdf5_hl.dll`, and `generic_mo_io.dll` are loadable from Isaac's local sensor directory when that directory is supplied explicitly. A manual preload conflicted with h5py (`WinError 127`) before app startup, so it was removed. The final directory-only v4 attempt still hit the same `generic_model_output` dependency failure before the project code ran.
 - Decision: do not launch further visible/camera Isaac sessions until the RTX sensor native dependency stack is repaired or the host is rebooted/revalidated. The unmodified headless H1/physics/planner bridge does not require this extension and remains reproducible. No failed MP4 is used in the edit.
 
+### Physical-wall local ray adapter — 2026-08-31
+
+- `src\maze_agent\ray_sensing.py` computes front/left/right/rear ranges by intersecting rays with the same `WallSpec` cuboids spawned for Isaac. Immediate walls appear at 0.84m (1.8m cells, 0.12m wall thickness); open passages are beyond the 1.0m planner-clearance threshold.
+- The adapter never accepts a global planner map as input. A 9×9 exhaustive test compared every cell and cardinal heading against the deterministic environment action topology; all local open/closed readings matched. CPU regression is now `22 passed`.
+
 ### Evidence rough cut and GitHub branch — 2026-08-31
 
 - `artifacts\video\baseline_comparison_v1.mp4` (9.000s) is an exact 200-development-maze baseline card for A*, DFS, and the right-hand rule. `artifacts\video\h1_bridge_evidence_v2.mp4` (9.000s) is an exact three-decision H1 physical-bridge data card; v1 was rejected for text overlap and preserved.

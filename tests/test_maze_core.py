@@ -9,7 +9,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from maze_agent import Action, Heading, TopologicalMemory, astar_plan, build_split_manifest, build_task, dfs_plan, guard_action, observe, oracle_next_action, run_actions, step, velocity_for_grid_action
+from maze_agent import Action, Heading, TopologicalMemory, astar_plan, build_split_manifest, build_task, dfs_plan, guard_action, observe, oracle_next_action, run_actions, sense_physical_maze, step, velocity_for_grid_action
 from maze_agent.core import reset
 from maze_agent.physical_maze import maze_wall_specs
 
@@ -133,3 +133,20 @@ def test_local_memory_guard_prevents_wall_actions_and_marks_return_edge_executed
     summary = memory.compact_summary(after_move)
     assert Heading.WEST.value in summary["visited_exits"]
     assert memory.nodes["N1_0"].parent_exit == Heading.WEST.value
+
+
+def test_physical_wall_ray_ranges_match_each_cell_local_topology() -> None:
+    task = build_task(9, 9, 2026)
+    # Immediate wall center distance is 0.84m for 1.8m cells and 0.12m walls;
+    # an open adjacent passage produces at least 2.64m before its next wall.
+    for position in task.layout.cells:
+        for heading in Heading:
+            ranges = sense_physical_maze(task, position, heading)
+            measured = ranges.open_by_direction(minimum_clearance_m=1.0)
+            expected = {
+                "front": task.layout.can_move(position, heading),
+                "left": task.layout.can_move(position, heading.left()),
+                "right": task.layout.can_move(position, heading.right()),
+                "rear": task.layout.can_move(position, heading.opposite()),
+            }
+            assert measured == expected
