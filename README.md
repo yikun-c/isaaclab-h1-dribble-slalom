@@ -1,134 +1,108 @@
-# Isaac Lab H1 Dribble Slalom
+# LLM-Guided H1 Maze Agent
 
-A GPU-parallel reinforcement learning experiment in which a 3D Unitree H1 humanoid learns to keep a football close, weave around four collidable poles in alternating directions, and finish with a shot on goal.
+An embodied-agent study and video project: a small text LLM makes high-level, schema-constrained maze decisions from local observations and external memory; a separate controller will execute those macro actions on a Unitree H1 humanoid in Isaac Lab.
 
-The repository contains the task environment, PPO configuration, curriculum controls, evaluation and recording tools, tests, and the final checkpoint. It does not contain raw training logs, rendered video files, or channel-specific editing assets.
+The project is deliberately not a claim that LLMs outperform graph search. A* is reported as a global-map upper bound, while DFS and a right-hand rule are retained as classical baselines.
 
-## Result
+## Current verified state
 
-The final policy was evaluated deterministically with an independent seed over 4,096 complete episodes:
+The CPU experiment core is complete and reproducible:
 
-| Metric | Result |
-| --- | ---: |
-| Goals | 4,013 / 4,096 |
-| Goal rate | 97.97% |
-| Four-pole route completion | 98.12% |
-| Falls | 31 / 4,096 |
-| Wrong routes | 46 / 4,096 |
+- Deterministic 9×9 physical-maze topology, semantic blue-checkpoint/red-forbidden task, and replayable high-level action contract.
+- Sealed splits: 2,000 training seeds, 200 development seeds, 500 IID-final seeds, and 500 OOD-final seeds.
+- 18,782 A*-expert SFT smoke examples from 200 training mazes.
+- Development baselines over 200 unseen mazes:
 
-Earlier curriculum checkpoints reached 98.77% on one pole, 99.15% on two poles, and 99.39% on three poles. Before any four-pole fine-tuning, the three-pole policy transferred zero-shot to the four-pole-and-shot task with an 86.72% goal rate.
+| Method | Success | Mean path efficiency | Notes |
+| --- | ---: | ---: | --- |
+| A* global-map oracle | 200 / 200 | 1.000 | Upper bound, not a fair partial-observation comparison |
+| DFS with explicit visited memory | 200 / 200 | 0.564 | Records actual exploration and backtracking |
+| Right-hand rule | 46 / 200 | 0.719 on successes | 154 forbidden-cell failures |
 
-These numbers describe this simulator distribution only. They do not demonstrate real-world robot deployment.
+- A synchronized 129-decision replay log records local perception, external memory, public decision summary, tool output and physical outcome.
+- A 43-second **A* trace layout prototype** verifies the video side-panel design. It is explicitly labelled as an oracle prototype, not LLM or H1 performance evidence.
 
-## Task
+Current hard blocker: Windows reports `OSError 1455` while loading the local 3.09GB Qwen model, and the one-environment Isaac smoke test also exited before completion while available page/swap was critically low. See [PROJECT_STATUS.md](PROJECT_STATUS.md) before attempting any GPU work.
 
-- Robot: 3D Unitree H1 with 19 active joints
-- Policy observation: 84 values
-- Policy action: 19 joint targets
-- Algorithm: PPO through RSL-RL
-- Training scale: up to 8,192 parallel Isaac Lab environments on one GPU
-- Route: left, right, left, right around four physical poles
-- Success: complete the route, then move the full ball across the goal line between the posts
-- Episode limit: 26 seconds for training and evaluation
-
-The task uses a two-phase waypoint at every pole. The ball first has to move laterally to the required side, then cross the pole while the humanoid remains within the control radius.
-
-## Reward-Loophole Lesson
-
-An early policy achieved deceptively strong route metrics by kicking the ball once and letting it roll through the poles while the robot stayed behind. Visual inspection exposed the mismatch.
-
-The corrected task adds:
-
-- a maximum robot-to-ball dribbling distance;
-- control checks when a pole crossing is counted;
-- catch-up behavior when the robot falls behind;
-- penalties for premature forward motion and overly hard touches;
-- separate rewards for lateral setup, valid crossings, and the final shot.
-
-This is why the project keeps full-attempt recording and independent evaluation as first-class tools instead of trusting reward curves alone.
-
-## Environment
-
-The project was tested on Windows with:
-
-- Isaac Sim 5.1.0
-- PyTorch 2.7.0 with CUDA 12.8
-- RSL-RL 3.1.2
-- NVIDIA Isaac Lab source checkout with `isaaclab_assets`
-
-Use the Python interpreter from the Isaac Lab environment. Example paths below match a default local checkout and can be changed for another installation.
-
-```powershell
-$env:OMNI_KIT_ACCEPT_EULA = 'YES'
-$python = 'D:\IsaacLab\.venv\Scripts\python.exe'
-```
-
-## Test
-
-The pure task-geometry tests do not launch Isaac Sim:
-
-```powershell
-& $python -m pytest tests -q
-```
-
-## Evaluate the Final Policy
-
-```powershell
-& $python scripts\evaluate.py `
-  checkpoints\model_3420.pt `
-  --stage 3 `
-  --num-envs 1024 `
-  --episodes 4096 `
-  --seed 2026 `
-  --output artifacts\final_evaluation.json `
-  --headless
-```
-
-## Train
-
-Train a stage from scratch or resume a compatible checkpoint:
-
-```powershell
-& $python scripts\train.py `
-  --num-envs 8192 `
-  --max-iterations 220 `
-  --forced-stage 3 `
-  --resume checkpoints\model_3420.pt `
-  --run-name four_poles_goal `
-  --action-noise-std 0.16 `
-  --headless
-```
-
-For a curriculum bridge, `--start-route-index` selects an auxiliary start near a later pole and `--start-route-fraction` mixes that start with full-route episodes. Final validation should always use the normal start.
-
-## Record a Complete Attempt
-
-Recording uses a visible Isaac Sim rendering window. A policy is shown until it succeeds, falls, loses control, takes a wrong route, stalls, or reaches the natural episode limit. There is no fixed short display window.
-
-```powershell
-& $python scripts\record_attempt.py `
-  checkpoints\model_3420.pt `
-  artifacts\final_attempt.mp4 `
-  --stage 3 `
-  --seed 3031 `
-  --iteration 3420 `
-  --phase 'Final policy' `
-  --attempts 3
-```
-
-`--attempts` records multiple independent episodes in one Isaac Sim process and writes one MP4 plus one JSON metadata file per attempt.
-
-## Layout
+## Architecture
 
 ```text
-checkpoints/             Final policy and evaluation summary
-scripts/train.py         PPO training entry point
-scripts/evaluate.py      Batched deterministic evaluation
-scripts/record_attempt.py Complete-attempt renderer
-src/dribble_agent/       Isaac Lab environment and PPO configuration
-tests/                   Pure task-logic tests
+Seeded maze generator
+  ├── Pure-Python backend → split generation, A*/DFS data, cheap evaluation
+  └── Isaac Lab wall geometry → ray/contact observations
+                                  ↓
+                    External topological memory
+                                  ↓
+                Small LLM → strict JSON tool call
+                                  ↓
+          Macro-action executor → H1 locomotion controller
+```
+
+The LLM never sees a hidden global map, raw camera image, or H1 joint targets. Its permitted actions are:
+
+- `MOVE_FORWARD`
+- `TURN_LEFT`
+- `TURN_RIGHT`
+- `BACKTRACK`
+- `STOP`
+
+Invalid output fails closed to `STOP`; the video displays a short public decision summary, not hidden chain-of-thought.
+
+## Reproduce the CPU core
+
+Use the installed Isaac Lab virtual environment, but do **not** start Isaac Sim for these commands:
+
+```powershell
+$python = 'D:\IsaacLab\.venv\Scripts\python.exe'
+
+& $python -m pytest tests -q -p no:cacheprovider
+& $python scripts\generate_maze_assets.py --smoke-mazes 200
+& $python scripts\evaluate_maze_baselines.py --split development --output artifacts\maze\baseline_development_v2.json
+& $python scripts\replay_maze_agent.py --seed 2026
+& $python scripts\render_maze_trace_prototype.py `
+  --output artifacts\video\maze_trace_overlay_prototype_v2.mp4 `
+  --metadata-output artifacts\video\maze_trace_overlay_prototype_v2.json
+```
+
+Generated artifacts are intentionally excluded from Git. Each result is versioned and accompanied by seed/config metadata.
+
+## Model and SFT plan
+
+The first model gate is [Qwen/Qwen2.5-1.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct), pinned locally under `models/` with a revision and SHA-256 manifest. Its Apache-2.0 license and model decision are recorded in [MODEL_DECISION.md](MODEL_DECISION.md).
+
+After Windows virtual-memory recovery, run exactly one short smoke run before scaling:
+
+```powershell
+$python = 'D:\IsaacLab\.venv\Scripts\python.exe'
+& $python scripts\smoke_qwen_inference.py --max-new-tokens 64
+& $python scripts\train_maze_sft.py --max-steps 20 --run-name qwen2_5_1_5b_maze_sft_smoke_v1
+```
+
+The trainer performs LoRA SFT only. DPO is deferred until SFT clears its predeclared grid gate, then must be compared with chosen-only SFT and a random-label DPO control.
+
+## Project status and recovery
+
+- [PROJECT_PLAN.md](PROJECT_PLAN.md): full phases, gates, baselines, video narrative, and GitHub policy.
+- [PROJECT_STATUS.md](PROJECT_STATUS.md): live paths, outputs, commands, failures, and recovery procedure.
+- [MODEL_DECISION.md](MODEL_DECISION.md): exact initial model choice and licensing record.
+
+The predecessor dribble and stopped Ronaldo projects are preserved outside this worktree and are not modified by this project.
+
+## Repository layout
+
+```text
+src/maze_agent/              Deterministic maze, baselines, memory, protocol and SFT formatting
+scripts/generate_maze_assets.py
+                              Sealed split manifest and A* SFT data generator
+scripts/evaluate_maze_baselines.py
+                              Classical baseline evaluator
+scripts/replay_maze_agent.py Trace JSONL generator for evaluation and video overlays
+scripts/render_maze_trace_prototype.py
+                              Truth-labelled side-panel layout renderer
+scripts/train_maze_sft.py    Bounded LoRA SFT entry point
+tests/                       Pure CPU tests
 ```
 
 ## License
 
-MIT
+Project code inherits the repository MIT license. Third-party models, Isaac Sim/Lab assets and any later media retain their own licenses and must be documented before publication.
