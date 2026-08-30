@@ -23,6 +23,7 @@ import h5py  # noqa: F401
 
 
 SENSOR_DLL_DIRECTORY_HANDLE = None
+RUN_PROGRESS: dict[str, object] = {}
 
 
 def preload_windows_rtx_sensor_dlls() -> None:
@@ -135,6 +136,15 @@ def main() -> None:
     if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2:
         raise ValueError("decision/macro budgets and cell-size must be positive")
     task = build_task(9, 9, args.seed)
+    RUN_PROGRESS.update(
+        {
+            "status": "initializing",
+            "seed": args.seed,
+            "cell_size_m": args.cell_size,
+            "requested_decisions": args.decisions,
+            "execution_guard": args.execution_guard,
+        }
+    )
     walls = maze_wall_specs(task, cell_size=args.cell_size)
     for spec in walls:
         wall_cfg = sim_utils.CuboidCfg(
@@ -245,6 +255,7 @@ def main() -> None:
         for decision_index in range(args.decisions):
             if state.terminated:
                 break
+            RUN_PROGRESS.update({"status": "planning", "decision_index": decision_index, "logical_position": list(state.position), "logical_heading": state.heading.value})
             memory.record_observation(task, state)
             memory_before = memory.compact_summary(state)
             payload = planner_input(task, state, memory)
@@ -324,6 +335,17 @@ def main() -> None:
             events.append(event)
             memory.record_transition(task, state, decision.action, logical_after)
             state = logical_after
+            RUN_PROGRESS.update(
+                {
+                    "status": "macro_completed",
+                    "decision_index": decision_index + 1,
+                    "logical_position": list(state.position),
+                    "logical_heading": state.heading.value,
+                    "last_action": decision.action.value,
+                    "last_macro_ticks": macro_ticks,
+                    "last_root_w": event["physical_macro"]["after_root_w"],
+                }
+            )
             if not physical_completed:
                 break
         report = {
@@ -389,6 +411,7 @@ if __name__ == "__main__":
                 "decisions": args.decisions,
                 "max_ticks_per_macro": args.max_ticks_per_macro,
                 "execution_guard": args.execution_guard,
+                "progress": RUN_PROGRESS,
             },
         )
         raise
