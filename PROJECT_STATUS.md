@@ -175,6 +175,8 @@ Attempted repair result: the current Codex process received `Requested registry 
 
 Recovery: start an elevated administrator PowerShell or elevated Codex session, add the D: page-file entry while preserving the C: entry, then restart Windows. After restart, run one Qwen inference smoke and one 1-environment Isaac smoke serially before any training. Do not retry large-model loading, training or Isaac from the current unelevated session.
 
+Prepared recovery script: `scripts\enable_d_pagefile.ps1`. It refuses to make any change unless it is running elevated and preserves the current C: entry while adding D:. Use the default 16,384MiB setting, then restart Windows.
+
 ### LLM may be unnecessary for a plain maze
 
 DFS/A* can solve ordinary mazes more reliably. A plain success clip would not establish LLM value.
