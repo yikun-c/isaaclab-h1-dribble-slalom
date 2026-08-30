@@ -37,9 +37,10 @@ def velocity_for_grid_action(
         raise ValueError("forward_mps and yaw_rate_rps must be positive")
     mapping = {
         Action.MOVE_FORWARD: MacroVelocity(forward_mps, 0.0, 0.0),
-        # The published velocity policy barely rotates from a full standstill
-        # in the measured environment.  A small forward component is a
-        # deliberate walking-turn primitive, not an unverified in-place turn.
+        # The published velocity policy barely rotates from a full standstill.
+        # A 0.10 ratio could not meet the turn-angle gate within 1,100 ticks.
+        # The measured 0.20 midpoint did not reduce positional drift versus
+        # 0.35, so retain the faster 0.35 walking-turn primitive.
         Action.TURN_LEFT: MacroVelocity(forward_mps * 0.35, 0.0, -yaw_rate_rps),
         Action.TURN_RIGHT: MacroVelocity(forward_mps * 0.35, 0.0, yaw_rate_rps),
         Action.BACKTRACK: MacroVelocity(-forward_mps * 0.70, 0.0, 0.0),

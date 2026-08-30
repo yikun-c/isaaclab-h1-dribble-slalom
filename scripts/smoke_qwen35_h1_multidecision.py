@@ -53,6 +53,7 @@ parser.add_argument("--seed", type=int, default=2026)
 parser.add_argument("--cell-size", type=float, default=1.8, help="Physical maze cell width in metres.")
 parser.add_argument("--decisions", type=int, default=3)
 parser.add_argument("--max-ticks-per-macro", type=int, default=1100)
+parser.add_argument("--forward-settle-distance", type=float, default=1.6, help="Metres between short stand-recovery intervals during a long forward macro.")
 parser.add_argument("--execution-guard", action="store_true", help="Use the labelled local-memory execution guard.")
 parser.add_argument("--guard-revisit-threshold", type=int, default=2)
 parser.add_argument("--adapter-dir", type=Path, default=PROJECT_ROOT / "runs/qwen35_sft/2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1/adapter")
@@ -133,7 +134,7 @@ def main() -> None:
     from maze_agent.physical_maze import maze_wall_specs
     from maze_agent.sft import SYSTEM_PROMPT
 
-    if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2:
+    if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2 or args.forward_settle_distance <= 0.0:
         raise ValueError("decision/macro budgets and cell-size must be positive")
     task = build_task(9, 9, args.seed)
     RUN_PROGRESS.update(
@@ -286,19 +287,47 @@ def main() -> None:
                 macro_ticks, physical_completed, macro_detail = 12, True, {"criterion": "stand_for_12_ticks"}
             elif decision.action in {Action.MOVE_FORWARD, Action.BACKTRACK}:
                 start_x, start_y = before_physical[0], before_physical[1]
-                world_yaw = GRID_HEADING_WORLD_YAW[state.heading]
-                direction = 1.0 if decision.action is Action.MOVE_FORWARD else -1.0
+                logical_target = step(task, state, decision.action)
+                if logical_target.position == state.position:
+                    raise RuntimeError("planner attempted physical translation into a blocked logical edge")
+                physical_heading = state.heading if decision.action is Action.MOVE_FORWARD else state.heading.opposite()
+                world_yaw = GRID_HEADING_WORLD_YAW[physical_heading]
+                target_xy = (logical_target.position[0] * args.cell_size, logical_target.position[1] * args.cell_size)
+                target_dx, target_dy = target_xy[0] - start_x, target_xy[1] - start_y
+                target_forward = target_dx * math.cos(world_yaw) + target_dy * math.sin(world_yaw)
+                target_cross = -target_dx * math.sin(world_yaw) + target_dy * math.cos(world_yaw)
+                if target_forward <= 0.0:
+                    raise RuntimeError("physical target is behind the requested macro direction")
                 target_values = velocity_for_grid_action(decision.action).as_tuple()
                 progress = 0.0
+                cross_track = 0.0
+                next_settle_distance = args.forward_settle_distance
+                recovery_intervals = 0
                 for _ in range(args.max_ticks_per_macro):
                     apply_velocity(target_values)
                     macro_ticks += 1
                     current = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
-                    progress = direction * ((current[0] - start_x) * math.cos(world_yaw) + (current[1] - start_y) * math.sin(world_yaw))
-                    if progress >= args.cell_size / 2.0:
+                    moved_x, moved_y = current[0] - start_x, current[1] - start_y
+                    progress = moved_x * math.cos(world_yaw) + moved_y * math.sin(world_yaw)
+                    cross_track = -moved_x * math.sin(world_yaw) + moved_y * math.cos(world_yaw) - target_cross
+                    if progress >= target_forward - 0.25 and abs(cross_track) <= args.cell_size * 0.25:
                         physical_completed = True
                         break
-                macro_detail = {"criterion": f"signed_translation_m>={args.cell_size / 2.0:.2f}", "signed_translation_m": progress, "expected_world_yaw": world_yaw}
+                    if progress >= next_settle_distance and next_settle_distance < target_forward - 0.25:
+                        for _ in range(12):
+                            apply_velocity((0.0, 0.0, 0.0))
+                            macro_ticks += 1
+                        recovery_intervals += 1
+                        next_settle_distance += args.forward_settle_distance
+                macro_detail = {
+                    "criterion": "absolute_target_center_within_forward_and_cross_track_tolerance",
+                    "signed_translation_m": progress,
+                    "target_forward_m": target_forward,
+                    "cross_track_error_m": cross_track,
+                    "target_root_xy": target_xy,
+                    "stand_recovery_intervals": recovery_intervals,
+                    "expected_world_yaw": world_yaw,
+                }
             else:
                 logical_after_turn = step(task, state, decision.action)
                 target_yaw = GRID_HEADING_WORLD_YAW[logical_after_turn.heading]
