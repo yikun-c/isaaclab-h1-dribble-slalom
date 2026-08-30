@@ -177,6 +177,8 @@ Recovery: start an elevated administrator PowerShell or elevated Codex session, 
 
 Prepared recovery script: `scripts\enable_d_pagefile.ps1`. It refuses to make any change unless it is running elevated and preserves the current C: entry while adding D:. Use the default 16,384MiB setting, then restart Windows.
 
+Latest resource attribution: the system had about 11GiB free physical memory but only about 4.7GiB free virtual memory. The largest resident consumers were Windows memory compression and active interactive applications (Codex/ChatGPT, IDE and browsers), while `nvidia-smi` showed no safe residual training process to terminate. These applications were not force-closed because they may contain unsaved user work. The page-file repair remains the only safe route to recover the required commit headroom.
+
 ### LLM may be unnecessary for a plain maze
 
 DFS/A* can solve ordinary mazes more reliably. A plain success clip would not establish LLM value.
