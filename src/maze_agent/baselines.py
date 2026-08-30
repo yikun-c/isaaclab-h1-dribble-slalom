@@ -48,6 +48,26 @@ def astar_plan(task: MazeTask) -> tuple[Action, ...]:
     return actions_for_route(task, task.optimal_route)
 
 
+def oracle_next_action(task: MazeTask, state: MazeState) -> Action:
+    """Return the first globally optimal legal action from any recoverable task state."""
+    if state.position == task.exit and state.checkpoint_complete:
+        return Action.STOP
+    destination = task.exit if state.checkpoint_complete else task.checkpoint
+    route = task.layout.shortest_path(state.position, destination, (task.forbidden,))
+    if route is None:
+        raise RuntimeError("oracle could not recover a valid path")
+    if len(route) == 1:
+        if state.position == task.checkpoint:
+            route = task.layout.shortest_path(state.position, task.exit, (task.forbidden,))
+            if route is None:
+                raise RuntimeError("oracle could not route checkpoint to exit")
+        else:
+            return Action.STOP
+    target_heading = heading_between(route[0], route[1])
+    turns = turn_actions(state.heading, target_heading)
+    return turns[0] if turns else Action.MOVE_FORWARD
+
+
 def _dfs_path(task: MazeTask, start: GridPos, goal: GridPos) -> tuple[GridPos, ...] | None:
     """Record actual DFS exploration, including physical returns from failed branches."""
     visited: set[GridPos] = set()

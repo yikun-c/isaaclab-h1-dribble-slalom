@@ -9,8 +9,9 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from maze_agent import Action, Heading, astar_plan, build_split_manifest, build_task, dfs_plan, observe, run_actions, step
+from maze_agent import Action, Heading, astar_plan, build_split_manifest, build_task, dfs_plan, observe, oracle_next_action, run_actions, step
 from maze_agent.core import reset
+from maze_agent.physical_maze import maze_wall_specs
 
 
 def test_same_seed_replays_exact_same_topology_and_semantic_task() -> None:
@@ -73,6 +74,17 @@ def test_dfs_records_exploration_rather_than_relabeling_the_oracle_path() -> Non
     assert len(dfs_plan(task)) >= len(astar_plan(task))
 
 
+def test_oracle_next_action_recovers_from_any_visited_expert_state() -> None:
+    task = build_task(9, 9, 2026)
+    state = reset(task)
+    for action in astar_plan(task)[:11]:
+        state = step(task, state, action)
+
+    expected = astar_plan(task)[11]
+
+    assert oracle_next_action(task, state) is expected
+
+
 def test_final_split_seed_is_refused_for_training() -> None:
     manifest = build_split_manifest(2026, train_count=4, development_count=2, iid_final_count=3, ood_final_count=3)
     manifest.assert_trainable(manifest.train_seeds[0])
@@ -87,3 +99,12 @@ def test_right_hand_rule_is_bounded_even_when_it_cannot_satisfy_semantics() -> N
     result = run_actions(task, right_hand_plan(task), max_actions=9 * 9 * 32)
 
     assert len(result.actions) <= 9 * 9 * 32
+
+
+def test_physical_wall_specs_match_closed_grid_edges_without_duplicates() -> None:
+    task = build_task(9, 9, 2026)
+    specs = maze_wall_specs(task)
+    # A perfect 9x9 maze has 80 open undirected edges out of 180 possible boundaries.
+    assert len(specs) == 180 - 80
+    assert len({spec.name for spec in specs}) == len(specs)
+    assert all(spec.size[2] > 0.0 for spec in specs)

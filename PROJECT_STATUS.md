@@ -181,6 +181,14 @@ Latest resource attribution: the system had about 11GiB free physical memory but
 
 Post-check retry evidence: no reboot occurred and `Win32_PageFileSetting` still lists only `C:\pagefile.sys`. A guarded Qwen smoke retry therefore remained invalid: `python.exe` exited without a Python traceback, and Windows Application Error event 1000 recorded `torch_cpu.dll` access violation `0xc0000005`. No model/Isaac process remained afterward. Do not interpret the temporarily higher free-virtual-memory number as recovery; the required D: page-file entry and restart have not happened.
 
+### Virtual-memory recovery verified — 2026-08-30 21:05 CST
+
+- Windows restarted at `2026-08-30 21:05:41 CST`.
+- `Win32_PageFileSetting` now lists both `C:\pagefile.sys` (8,192–16,384MiB) and `D:\pagefile.sys` (16,384–16,384MiB).
+- Available virtual memory increased to about 35.7GiB after restart.
+- `scripts\smoke_qwen_inference.py --max-new-tokens 64` now completed successfully. The pinned Qwen model generated a valid `MOVE_FORWARD` JSON tool response; peak allocated/reserved GPU memory was 2,961.1/3,160.0MiB.
+- The Windows page-file blocker is resolved. Continue with one-at-a-time GPU runs and retain versioned checkpoints.
+
 ### LLM may be unnecessary for a plain maze
 
 DFS/A* can solve ordinary mazes more reliably. A plain success clip would not establish LLM value.
@@ -202,3 +210,26 @@ Recovery: generate grouped split manifests early, make training code reject seal
 ## Resume instruction
 
 Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and after every long-running command. Do not resume the Ronaldo project, overwrite old artifacts, or spend prolonged GPU time without a bounded gate and recovery checkpoint.
+
+## Current verified continuation — 2026-08-31
+
+- Project path: `D:\ai_llm_maze_agent_video` on branch `feature/llm-maze-agent`; the stopped Ronaldo worktree remains untouched.
+- Current completion: deterministic planner/data/evaluation core, Qwen3.5 LoRA smoke study, H1 locomotion smoke, and collidable physical-wall smoke are complete. High-level planner-to-H1 navigation, sealed final evaluation, final edit, and GitHub publication are not complete.
+- Page-file recovery is complete (both C: and D: entries); one-at-a-time GPU/Isaac runs are now permitted.
+- Primary model is `Qwen/Qwen3.5-2B` at revision `15852e8c16360a2fea060d615a32b45270f8a8fc`, using an isolated `runtime\qwen35_transformers` runtime so the verified Isaac Lab environment is not modified.
+- Qwen3.5 evidence: a 200-step LoRA run on 18,782 expert-memory examples reached train loss `0.1414`; independent 64-state development action accuracy was `93.75%` with `100%` valid JSON, but only `1/3` development closed-loop mazes completed within 128 decisions. A 300-step recovery-mixture continuation (28,382 examples) lowered train loss to `0.0699`, yet action accuracy fell to `90.62%` and closed-loop completion to `0/3`. This is retained as a negative result, not presented as improvement.
+- H1 evidence: `scripts\smoke_h1_velocity_env.py`, `scripts\smoke_h1_pretrained_locomotion.py`, and `scripts\smoke_h1_physical_maze.py` passed. The last verified physical-maze smoke created `100` collidable wall cuboids and stepped the official H1 policy. This does not yet mean the LLM drives H1 through a maze.
+- Recording caveat: headless camera capture crashed in the Isaac Vulkan/Hydra stack before output creation. The next bounded recording attempt must use the visible D3D12 Isaac session; do not retry the same headless camera route.
+- New video evidence: `artifacts\video\llm_training_evidence_v2.mp4` is a 21.000-second, 1280×720, 30fps, 4,256,202-byte training/evaluation clip generated from the actual run/evaluation JSON files. Automated probe found no black interval; start/middle/end frames were visually checked for Chinese text, clipping, and metric consistency. `v1` is an interrupted 10-second render preserved for provenance and is not for use.
+- Latest regression check: `D:\IsaacLab\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider` -> `19 passed in 2.28s`.
+
+### Physical recording attempts — 2026-08-31
+
+- Visible D3D12 attempt `h1_physical_maze_setup_v2.mp4` was written (2.000 seconds, 1280×720, 1,813,533 bytes, 60 frames), but visual inspection found a black first segment and an unclear framing with rough-terrain geometry. Preserve `v2` for diagnosis only; it is rejected as an edit source.
+- The versioned v3 retry used a fixed reset pose, longer warm-up, black-buffer rejection, and a revised camera. It failed during Isaac/Kit startup before project script logic, with Windows fatal exception `0xc0000139` and no v3 output. The log also reports optional RTX-sensor DLL load failures. Do not repeatedly relaunch the same visible-camera path; investigate the Kit/DLL startup boundary or use an explicitly truth-labelled alternative recorder.
+
+### Current task and next recovery-safe command
+
+1. Diagnose the intermittent visible-D3D12 Kit/DLL startup failure before any further physical-camera attempt. Preserve the rejected v2 output and use it only as failure evidence, never as a final shot.
+2. Implement and label an auditable memory/execution-interface intervention; compare it against the retained Qwen3.5 SFT/recovery results on development mazes.
+3. Only after a true high-level/low-level integration passes its declared development gate, run sealed evaluation and assemble the versioned final video.
