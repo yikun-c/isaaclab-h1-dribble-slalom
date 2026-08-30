@@ -9,7 +9,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from maze_agent import Action, Heading, astar_plan, build_split_manifest, build_task, dfs_plan, observe, oracle_next_action, run_actions, step
+from maze_agent import Action, Heading, astar_plan, build_split_manifest, build_task, dfs_plan, observe, oracle_next_action, run_actions, step, velocity_for_grid_action
 from maze_agent.core import reset
 from maze_agent.physical_maze import maze_wall_specs
 
@@ -108,3 +108,11 @@ def test_physical_wall_specs_match_closed_grid_edges_without_duplicates() -> Non
     assert len(specs) == 180 - 80
     assert len({spec.name for spec in specs}) == len(specs)
     assert all(spec.size[2] > 0.0 for spec in specs)
+
+
+def test_h1_bridge_preserves_grid_turn_direction_across_coordinate_conventions() -> None:
+    assert velocity_for_grid_action(Action.MOVE_FORWARD).as_tuple() == (0.3, 0.0, 0.0)
+    # Grid north is world -y; from east it requires negative world yaw.
+    assert velocity_for_grid_action(Action.TURN_LEFT).angular_z_rps < 0.0
+    assert velocity_for_grid_action(Action.TURN_RIGHT).angular_z_rps > 0.0
+    assert velocity_for_grid_action(Action.TURN_RIGHT).linear_x_mps > 0.0

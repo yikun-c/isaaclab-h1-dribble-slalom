@@ -18,7 +18,7 @@ from isaaclab.app import AppLauncher
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description="Smoke-test runtime H1 velocity command updates.")
 parser.add_argument("--ticks-per-phase", type=int, default=24)
-parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "artifacts/h1/dynamic_velocity_command_v1.json")
+parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "artifacts/h1/dynamic_velocity_command_v2.json")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 app_launcher = AppLauncher(args)
@@ -62,7 +62,7 @@ def main() -> None:
     cfg.commands.base_velocity.heading_command = False
     env = ManagerBasedRLEnv(cfg)
     wrapped = RslRlVecEnvWrapper(env)
-    phases = (("forward", (0.35, 0.0, 0.0)), ("turn_left", (0.0, 0.0, 0.55)), ("stand", (0.0, 0.0, 0.0)))
+    phases = (("forward", (0.35, 0.0, 0.0)), ("walking_positive_yaw", (0.12, 0.0, 0.55)), ("stand", (0.0, 0.0, 0.0)))
     records: list[dict] = []
     try:
         runner = OnPolicyRunner(wrapped, H1RoughPPORunnerCfg().to_dict(), log_dir=None, device=env.device)
@@ -73,6 +73,7 @@ def main() -> None:
         for phase, values in phases:
             target = torch.tensor(values, device=env.device, dtype=term.vel_command_b.dtype).unsqueeze(0)
             start_position = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
+            start_heading = float(env.scene["robot"].data.heading_w[0].item())
             for _ in range(args.ticks_per_phase):
                 # CommandManager may update each environment step; write immediately
                 # before policy inference so this is the measured runtime interface.
@@ -84,9 +85,10 @@ def main() -> None:
                     raise RuntimeError(f"non-finite robot state during {phase}")
             applied = term.vel_command_b[0].detach().cpu().tolist()
             end_position = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
+            end_heading = float(env.scene["robot"].data.heading_w[0].item())
             if any(abs(actual - expected) > 1e-6 for actual, expected in zip(applied, values)):
                 raise RuntimeError(f"runtime command mismatch for {phase}: expected={values}, actual={applied}")
-            records.append({"phase": phase, "target": list(values), "applied": applied, "start_pos_w": start_position, "end_pos_w": end_position})
+            records.append({"phase": phase, "target": list(values), "applied": applied, "start_pos_w": start_position, "end_pos_w": end_position, "start_heading_w": start_heading, "end_heading_w": end_heading, "heading_delta_rad": end_heading - start_heading})
         payload = {
             "result": "H1_DYNAMIC_VELOCITY_COMMAND_SMOKE_OK",
             "checkpoint": str(checkpoint),

@@ -63,19 +63,6 @@ def planner_input(task, state, memory):
     }
 
 
-def velocity_for_action(action):
-    from maze_agent import Action
-
-    mapping = {
-        Action.MOVE_FORWARD: (0.30, 0.0, 0.0),
-        Action.TURN_LEFT: (0.0, 0.0, 0.55),
-        Action.TURN_RIGHT: (0.0, 0.0, -0.55),
-        Action.BACKTRACK: (-0.20, 0.0, 0.0),
-        Action.STOP: (0.0, 0.0, 0.0),
-    }
-    return mapping[action]
-
-
 def main() -> None:
     import torch
     from peft import PeftModel
@@ -90,7 +77,7 @@ def main() -> None:
     from isaaclab_tasks.manager_based.locomotion.velocity.config.h1.agents.rsl_rl_ppo_cfg import H1RoughPPORunnerCfg
     from isaaclab_tasks.manager_based.locomotion.velocity.config.h1.rough_env_cfg import H1RoughEnvCfg_PLAY
 
-    from maze_agent import TopologicalMemory, build_task, parse_planner_response
+    from maze_agent import TopologicalMemory, build_task, parse_planner_response, velocity_for_grid_action
     from maze_agent.core import reset
     from maze_agent.physical_maze import maze_wall_specs
     from maze_agent.sft import SYSTEM_PROMPT
@@ -156,7 +143,7 @@ def main() -> None:
             latency_ms = (time.perf_counter() - started) * 1000.0
         raw = processor.decode(output_ids[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True)
         decision = parse_planner_response(raw)
-        target_values = velocity_for_action(decision.action)
+        target_values = velocity_for_grid_action(decision.action).as_tuple()
         term = env.command_manager.get_term("base_velocity")
         target = torch.tensor([target_values], device=env.device, dtype=term.vel_command_b.dtype)
         for _ in range(args.ticks):
