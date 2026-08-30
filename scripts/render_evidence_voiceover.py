@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 import subprocess
+import argparse
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = PROJECT_ROOT / "assets/video/evidence_cut_v1_voiceover.json"
-OUTPUT_DIR = PROJECT_ROOT / "artifacts/audio/evidence_cut_v1"
-MANIFEST = OUTPUT_DIR / "manifest.json"
 
 
 def atempo_chain(factor: float) -> str:
@@ -37,12 +35,17 @@ def probe_duration(path: Path) -> float:
 
 
 def main() -> None:
-    entries = json.loads(SOURCE.read_text(encoding="utf-8"))
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    parser = argparse.ArgumentParser(description="Render duration-matched evidence-cut voiceover.")
+    parser.add_argument("--source", type=Path, default=PROJECT_ROOT / "assets/video/evidence_cut_v1_voiceover.json")
+    parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "artifacts/audio/evidence_cut_v1")
+    args = parser.parse_args()
+    entries = json.loads(args.source.read_text(encoding="utf-8"))
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    manifest = args.output_dir / "manifest.json"
     manifest_entries: list[dict] = []
     for index, entry in enumerate(entries, start=1):
-        raw = OUTPUT_DIR / f"{index:02d}_{entry['id']}.raw.mp3"
-        output = OUTPUT_DIR / f"{index:02d}_{entry['id']}.mp3"
+        raw = args.output_dir / f"{index:02d}_{entry['id']}.raw.mp3"
+        output = args.output_dir / f"{index:02d}_{entry['id']}.mp3"
         subprocess.run(
             ["edge-tts", "--voice", "zh-CN-XiaoxiaoNeural", "--text", entry["text"], "--write-media", str(raw)],
             check=True,
@@ -56,8 +59,8 @@ def main() -> None:
         )
         output_duration = probe_duration(output)
         manifest_entries.append({**entry, "raw": str(raw.resolve()), "raw_duration_seconds": raw_duration, "output": str(output.resolve()), "output_duration_seconds": output_duration})
-    MANIFEST.write_text(json.dumps({"voice": "zh-CN-XiaoxiaoNeural", "entries": manifest_entries}, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({"manifest": str(MANIFEST.resolve()), "entries": manifest_entries}, ensure_ascii=False, sort_keys=True))
+    manifest.write_text(json.dumps({"voice": "zh-CN-XiaoxiaoNeural", "source": str(args.source.resolve()), "entries": manifest_entries}, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps({"manifest": str(manifest.resolve()), "entries": manifest_entries}, ensure_ascii=False, sort_keys=True))
 
 
 if __name__ == "__main__":

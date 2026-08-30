@@ -75,12 +75,22 @@ def main() -> None:
         type=Path,
         default=PROJECT_ROOT / "artifacts/maze/eval_qwen35_closedloop_memory_guard_dev3_v1.json",
     )
-    parser.add_argument("--fps", type=int, default=30)
     parser.add_argument(
-        "--output", type=Path, default=PROJECT_ROOT / "artifacts/video/llm_training_evidence_v3.mp4"
+        "--dpo-correct-eval",
+        type=Path,
+        default=PROJECT_ROOT / "artifacts/maze/eval_qwen35_dpo_correct_dev5_toolcalls_dev64_v1.json",
     )
     parser.add_argument(
-        "--metadata-output", type=Path, default=PROJECT_ROOT / "artifacts/video/llm_training_evidence_v3.json"
+        "--dpo-random-eval",
+        type=Path,
+        default=PROJECT_ROOT / "artifacts/maze/eval_qwen35_dpo_random_dev5_toolcalls_dev64_v1.json",
+    )
+    parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument(
+        "--output", type=Path, default=PROJECT_ROOT / "artifacts/video/llm_training_evidence_v4.mp4"
+    )
+    parser.add_argument(
+        "--metadata-output", type=Path, default=PROJECT_ROOT / "artifacts/video/llm_training_evidence_v4.json"
     )
     args = parser.parse_args()
     if args.fps <= 0:
@@ -93,6 +103,7 @@ def main() -> None:
     base_action, base_closed = load_json(args.base_action_eval), load_json(args.base_closed_eval)
     recovery_action, recovery_closed = load_json(args.recovery_action_eval), load_json(args.recovery_closed_eval)
     guard_closed = load_json(args.guard_closed_eval)
+    dpo_correct, dpo_random = load_json(args.dpo_correct_eval), load_json(args.dpo_random_eval)
 
     import cv2
     import numpy as np
@@ -206,7 +217,20 @@ def main() -> None:
         draw.text((72, 632), "结论：这是 Qwen3.5 + 本地记忆执行守卫的混合系统，不能称为纯 LLM 规划胜利。", font=body_font, fill=text)
         return image
 
-    sections = ((render_data, 4), (render_base, 6), (render_eval, 5), (render_recovery, 6), (render_guard, 6))
+    def render_dpo(frame_index: int) -> Image.Image:
+        image = Image.new("RGB", (width, height), bg)
+        draw = ImageDraw.Draw(image)
+        draw_header(draw, "6 / 6  DPO 因果控制：短 smoke 没有可证明提升")
+        card(draw, (72, 150, 430, 340), "偏好对", "18,782", "训练集 A* 代价比较；非早停单一负样本", blue)
+        card(draw, (461, 150, 819, 340), "正确标签 DPO", f"{dpo_correct['exact_action_accuracy'] * 100:.2f}%", "64 个开发状态 · 5 步 smoke", orange)
+        card(draw, (850, 150, 1208, 340), "随机标签控制", f"{dpo_random['exact_action_accuracy'] * 100:.2f}%", "同预算、随机交换偏好", orange)
+        draw.rounded_rectangle((72, 420, 1208, 570), radius=14, fill=panel)
+        draw.text((105, 453), "SFT 基线：93.75%     正确标签 DPO：92.19%     随机标签：92.19%", font=body_font, fill=text)
+        draw.text((105, 510), "结论：五步 DPO 没有改善外部动作评测，保留为负对照，不作为效果宣称。", font=small_font, fill=muted)
+        draw.text((72, 642), "这就是为什么视频只展示可复核的开发结果，而不靠训练曲线讲故事。", font=body_font, fill=text)
+        return image
+
+    sections = ((render_data, 4), (render_base, 6), (render_eval, 5), (render_recovery, 6), (render_guard, 6), (render_dpo, 5))
     total_frames = 0
     try:
         for render, seconds in sections:
@@ -225,7 +249,7 @@ def main() -> None:
         "fps": args.fps,
         "frames": total_frames,
         "duration_seconds": total_frames / args.fps,
-        "sources": [str(path.resolve()) for path in (args.base_run, args.recovery_run, args.base_action_eval, args.base_closed_eval, args.recovery_action_eval, args.recovery_closed_eval, args.guard_closed_eval)],
+        "sources": [str(path.resolve()) for path in (args.base_run, args.recovery_run, args.base_action_eval, args.base_closed_eval, args.recovery_action_eval, args.recovery_closed_eval, args.guard_closed_eval, args.dpo_correct_eval, args.dpo_random_eval)],
         "metrics": {
             "base_train_loss": base_summary["metrics"]["train_loss"],
             "base_action_exact_rate": base_action["exact_action_accuracy"],
@@ -238,6 +262,8 @@ def main() -> None:
             "guard_closed_successes": guard_closed["successes"],
             "guard_closed_episodes": guard_closed["episodes"],
             "guard_total_overrides": guard_closed["total_guard_overrides"],
+            "dpo_correct_action_accuracy": dpo_correct["exact_action_accuracy"],
+            "dpo_random_action_accuracy": dpo_random["exact_action_accuracy"],
         },
     }
     write_json_atomic(args.metadata_output.resolve(), metadata)
