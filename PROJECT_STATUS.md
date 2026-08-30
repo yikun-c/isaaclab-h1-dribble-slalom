@@ -179,6 +179,8 @@ Prepared recovery script: `scripts\enable_d_pagefile.ps1`. It refuses to make an
 
 Latest resource attribution: the system had about 11GiB free physical memory but only about 4.7GiB free virtual memory. The largest resident consumers were Windows memory compression and active interactive applications (Codex/ChatGPT, IDE and browsers), while `nvidia-smi` showed no safe residual training process to terminate. These applications were not force-closed because they may contain unsaved user work. The page-file repair remains the only safe route to recover the required commit headroom.
 
+Post-check retry evidence: no reboot occurred and `Win32_PageFileSetting` still lists only `C:\pagefile.sys`. A guarded Qwen smoke retry therefore remained invalid: `python.exe` exited without a Python traceback, and Windows Application Error event 1000 recorded `torch_cpu.dll` access violation `0xc0000005`. No model/Isaac process remained afterward. Do not interpret the temporarily higher free-virtual-memory number as recovery; the required D: page-file entry and restart have not happened.
+
 ### LLM may be unnecessary for a plain maze
 
 DFS/A* can solve ordinary mazes more reliably. A plain success clip would not establish LLM value.
