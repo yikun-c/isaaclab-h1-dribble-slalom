@@ -257,6 +257,7 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 
 - `src\maze_agent\ray_sensing.py` computes front/left/right/rear ranges by intersecting rays with the same `WallSpec` cuboids spawned for Isaac. Immediate walls appear at 0.84m (1.8m cells, 0.12m wall thickness); open passages are beyond the 1.0m planner-clearance threshold.
 - The adapter never accepts a global planner map as input. A 9×9 exhaustive test compared every cell and cardinal heading against the deterministic environment action topology; all local open/closed readings matched. CPU regression is now `22 passed`.
+- Development ray-input ablation: `artifacts\maze\eval_qwen35_closedloop_guard_physical_rays_dev1_v1.json` failed (`0/1`, decision budget exhausted) because the initial implementation inserted untrained meter-range keys into the Qwen input schema. The corrected `...v2.json` derives only the trained four boolean fields from the physical ranges while logging meters outside the model context; it reproduced `1/1`, 113 decisions, 100% valid JSON, zero collisions, 2 repeated states, and 60 guard overrides. This is development evidence for the physical-wall observation adapter, not a final real-sensor result.
 
 ### Evidence rough cut and GitHub branch — 2026-08-31
 

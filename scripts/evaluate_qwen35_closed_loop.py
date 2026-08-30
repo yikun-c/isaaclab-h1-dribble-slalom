@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "runtime" / "qwen35_transformers"))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from maze_agent import TopologicalMemory, build_task, decision_event, guard_action, observe, parse_planner_response, step
+from maze_agent import TopologicalMemory, build_task, decision_event, guard_action, observe, parse_planner_response, sense_physical_maze, step
 from maze_agent.core import reset
 from maze_agent.sft import SYSTEM_PROMPT
 
@@ -30,15 +30,21 @@ def write_json_atomic(path: Path, payload: dict) -> None:
     os.replace(temporary, path)
 
 
-def build_input(task, state, memory: TopologicalMemory) -> dict:
+def build_input(task, state, memory: TopologicalMemory, use_physical_wall_rays: bool = False) -> dict:
     local = observe(task, state)
+    ray_ranges = None
+    if use_physical_wall_rays:
+        ray_ranges = sense_physical_maze(task, state.position, state.heading)
+        openings = ray_ranges.open_by_direction(minimum_clearance_m=1.0)
+    else:
+        openings = {"front": local.front_open, "left": local.left_open, "right": local.right_open, "rear": local.rear_open}
     return {
         "instruction": task.instruction,
         "local_perception": {
-            "front_open": local.front_open,
-            "left_open": local.left_open,
-            "right_open": local.right_open,
-            "rear_open": local.rear_open,
+            "front_open": openings["front"],
+            "left_open": openings["left"],
+            "right_open": openings["right"],
+            "rear_open": openings["rear"],
             "current_landmarks": list(local.current_landmarks),
             "adjacent_landmarks": list(local.adjacent_landmarks),
         },
@@ -61,6 +67,7 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument("--execution-guard", action="store_true", help="Use the explicitly labelled local-memory executor guard.")
     parser.add_argument("--guard-revisit-threshold", type=int, default=2)
+    parser.add_argument("--physical-wall-rays", action="store_true", help="Derive boolean planner openings from physical wall ray ranges.")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -93,7 +100,7 @@ def main() -> None:
                 state_key = (state.position, state.heading.value, state.checkpoint_complete)
                 loops += int(state_key in seen)
                 seen.add(state_key)
-                payload = build_input(task, state, memory)
+                payload = build_input(task, state, memory, args.physical_wall_rays)
                 messages = [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]},
@@ -135,6 +142,14 @@ def main() -> None:
                 if args.execution_guard:
                     event["planner"]["proposed_action"] = proposed.action.value
                     event["planner"]["guard_reason"] = guard_reason
+                if args.physical_wall_rays:
+                    ranges = sense_physical_maze(task, state.position, state.heading)
+                    event["physical_wall_ranges_m"] = {
+                        "front": ranges.front_m,
+                        "left": ranges.left_m,
+                        "right": ranges.right_m,
+                        "rear": ranges.rear_m,
+                    }
                 events.append(event)
                 memory.record_transition(task, state, decision.action, after)
                 state = after
@@ -161,6 +176,7 @@ def main() -> None:
         "scope": "development-only causal-memory closed-loop mazes; final splits were not loaded",
         "execution_interface": "LLM plus local-memory guard" if args.execution_guard else "LLM proposed action directly executed",
         "guard_revisit_threshold": args.guard_revisit_threshold if args.execution_guard else None,
+        "perception_source": "physical_wall_ray_ranges" if args.physical_wall_rays else "grid_topology_adapter",
         "model_dir": str(args.model_dir.resolve()),
         "adapter_dir": str(args.adapter_dir.resolve()),
         "episodes": len(episodes),
