@@ -258,6 +258,7 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 - Versioned visible-D3D12 recording attempts `qwen35_h1_physical_bridge_v1` and `v2` produced no output because Isaac crashed before project script logic with Windows `0xc0000139`. The first exposed `h5py._errors` DLL initialization; the second showed optional RTX `generic_model_output` / lidar/radar dependent-DLL failures after the h5py preload.
 - Preflight proved `hdf5.dll`, `hdf5_hl.dll`, and `generic_mo_io.dll` are loadable from Isaac's local sensor directory when that directory is supplied explicitly. A manual preload conflicted with h5py (`WinError 127`) before app startup, so it was removed. The final directory-only v4 attempt still hit the same `generic_model_output` dependency failure before the project code ran.
 - Decision: do not launch further visible/camera Isaac sessions until the RTX sensor native dependency stack is repaired or the host is rebooted/revalidated. The unmodified headless H1/physics/planner bridge does not require this extension and remains reproducible. No failed MP4 is used in the edit.
+- Driver evidence: local `nvidia-smi` reports NVIDIA driver `610.62`; the official Isaac Sim 5.1 requirements list Windows `580.88` as the tested driver for the RTX 5080 class. The installed Isaac Sim package includes `isaacsim.exp.compatibility_check.kit`. Driver rollback/clean installation or backend alteration is a system-level, reboot-required recovery step and has not been performed automatically.
 
 ### Physical-wall local ray adapter — 2026-08-31
 
