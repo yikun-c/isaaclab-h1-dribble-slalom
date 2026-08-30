@@ -167,6 +167,14 @@ The local Qwen model smoke test now fails deterministically with Windows `os err
 
 Recovery requires a user-approved Windows virtual-memory change (for example, a larger page file on a drive with enough free capacity) and restart, followed by one-at-a-time 1-request Qwen and 1-environment H1 smoke tests. Do not retry large-model loading, training or Isaac until then.
 
+### Pending virtual-memory repair — 2026-08-30
+
+Read-only verification found manual virtual-memory mode, with `C:\pagefile.sys` configured at 8,192–16,384MiB and `D:` holding 35.15GiB free. The intended repair is to preserve the C: setting and add `D:\pagefile.sys` at 16,384MiB initial/max size, leaving roughly 19GiB free on D:.
+
+Attempted repair result: the current Codex process received `Requested registry access is not allowed` while writing `HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PagingFiles`. Registry readback confirms no setting changed. This is a Windows administrator/UAC boundary, not missing user authorization.
+
+Recovery: start an elevated administrator PowerShell or elevated Codex session, add the D: page-file entry while preserving the C: entry, then restart Windows. After restart, run one Qwen inference smoke and one 1-environment Isaac smoke serially before any training. Do not retry large-model loading, training or Isaac from the current unelevated session.
+
 ### LLM may be unnecessary for a plain maze
 
 DFS/A* can solve ordinary mazes more reliably. A plain success clip would not establish LLM value.
