@@ -228,8 +228,14 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 - Visible D3D12 attempt `h1_physical_maze_setup_v2.mp4` was written (2.000 seconds, 1280×720, 1,813,533 bytes, 60 frames), but visual inspection found a black first segment and an unclear framing with rough-terrain geometry. Preserve `v2` for diagnosis only; it is rejected as an edit source.
 - The versioned v3 retry used a fixed reset pose, longer warm-up, black-buffer rejection, and a revised camera. It failed during Isaac/Kit startup before project script logic, with Windows fatal exception `0xc0000139` and no v3 output. The log also reports optional RTX-sensor DLL load failures. Do not repeatedly relaunch the same visible-camera path; investigate the Kit/DLL startup boundary or use an explicitly truth-labelled alternative recorder.
 
+### New H1 command and planner bridge evidence — 2026-08-31
+
+- `artifacts\h1\dynamic_velocity_command_v1.json`: the official H1 velocity policy accepted direct runtime command-buffer changes for forward (`0.35m/s`), left turn (`0.55rad/s`), and stand (`0,0,0`) over 24 ticks each with finite robot state. This verifies the macro-action interface is dynamic, not fixed only at environment creation.
+- `artifacts\h1\policy_inside_physical_maze_v1.json`: switching the rough-policy terrain source to a plane while retaining its height-scan observation shape removed the prior origin mismatch. H1 reset at `(0,0,1.05)`, all 100 physical wall prims existed, and a 48-tick eastward low-level command moved it to `(0.187,0.007,1.036)` inside the maze start cell/first passage.
+- `artifacts\h1\qwen35_h1_bridge_one_decision_v1.json`: the 200-step Qwen3.5 LoRA adapter consumed the real initial structured observation, emitted valid `MOVE_FORWARD` JSON in `1264.75ms`, and that parsed tool call drove the pretrained H1 with a live `(0.30,0,0)` velocity command for 48 ticks. H1 ended at `(0.187,0.015,1.036)`; 100 wall prims were present. This is a verified one-decision LLM-to-H1 bridge, explicitly **not** a multi-decision maze-completion claim.
+
 ### Current task and next recovery-safe command
 
 1. Diagnose the intermittent visible-D3D12 Kit/DLL startup failure before any further physical-camera attempt. Preserve the rejected v2 output and use it only as failure evidence, never as a final shot.
-2. Implement and label an auditable memory/execution-interface intervention; compare it against the retained Qwen3.5 SFT/recovery results on development mazes.
-3. Only after a true high-level/low-level integration passes its declared development gate, run sealed evaluation and assemble the versioned final video.
+2. Implement macro completion (forward distance/turn-angle feedback), then run multiple Qwen decisions with an event log and compare an auditable memory/execution-interface intervention against retained Qwen3.5 SFT/recovery development results.
+3. Only after a true multi-decision high-level/low-level integration passes its declared development gate, run sealed evaluation and assemble the versioned final video.
