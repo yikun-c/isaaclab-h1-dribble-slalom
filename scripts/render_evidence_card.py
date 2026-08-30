@@ -82,6 +82,9 @@ def main() -> None:
         card((70, 135, 420, 300), "碰撞墙体", str(data["walls"]), "100 段均在 Isaac stage 中验证", blue)
         card((465, 135, 815, 300), "完成宏动作", f"{data['completed_macros']} / {data['requested_decisions']}", "每步等待实际位移或转角阈值", green)
         card((860, 135, 1210, 300), "最终逻辑格", str(tuple(data["final_logical_position"])), "从 (0, 0) 出发", green)
+        if "physical_wall_ranges_m" in events[0]:
+            first_ranges = events[0]["physical_wall_ranges_m"]
+            draw.text((70, 326), f"规划输入来自实体墙四向射线：首步前方 {first_ranges['front']:.2f}m，其他方向 {first_ranges['left']:.2f}m / {first_ranges['right']:.2f}m / {first_ranges['rear']:.2f}m", font=small, fill=orange)
         y = 365
         for index, event in enumerate(events, start=1):
             macro = event["physical_macro"]

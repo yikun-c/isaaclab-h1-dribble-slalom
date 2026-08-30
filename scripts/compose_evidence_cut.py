@@ -10,14 +10,14 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCES = (
-    PROJECT_ROOT / "artifacts/video/h1_bridge_evidence_v2.mp4",
+    PROJECT_ROOT / "artifacts/video/h1_bridge_evidence_v3.mp4",
     PROJECT_ROOT / "artifacts/video/llm_training_evidence_v3.mp4",
     PROJECT_ROOT / "artifacts/video/baseline_comparison_v1.mp4",
     PROJECT_ROOT / "artifacts/video/maze_trace_overlay_prototype_v2.mp4",
     PROJECT_ROOT / "artifacts/video/qwen35_memory_guard_replay_v1.mp4",
 )
-OUTPUT = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v1.mp4"
-METADATA = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v1.json"
+OUTPUT = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v2.mp4"
+METADATA = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v2.json"
 
 
 def write_json_atomic(path: Path, payload: dict) -> None:

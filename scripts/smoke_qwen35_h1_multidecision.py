@@ -79,16 +79,18 @@ def wrapped_angle(error: float) -> float:
 
 
 def planner_input(task, state, memory):
-    from maze_agent import observe
+    from maze_agent import observe, sense_physical_maze
 
     local = observe(task, state)
+    ranges = sense_physical_maze(task, state.position, state.heading)
+    openings = ranges.open_by_direction(minimum_clearance_m=1.0)
     return {
         "instruction": task.instruction,
         "local_perception": {
-            "front_open": local.front_open,
-            "left_open": local.left_open,
-            "right_open": local.right_open,
-            "rear_open": local.rear_open,
+            "front_open": openings["front"],
+            "left_open": openings["left"],
+            "right_open": openings["right"],
+            "rear_open": openings["rear"],
             "current_landmarks": list(local.current_landmarks),
             "adjacent_landmarks": list(local.adjacent_landmarks),
         },
@@ -118,6 +120,7 @@ def main() -> None:
         build_task,
         decision_event,
         parse_planner_response,
+        sense_physical_maze,
         step,
         velocity_for_grid_action,
     )
@@ -289,6 +292,8 @@ def main() -> None:
                 apply_velocity((0.0, 0.0, 0.0))
             logical_after = step(task, state, decision.action) if physical_completed else replace(state, last_result="physical_macro_incomplete")
             event = decision_event(task, state, decision, logical_after, memory_before, raw, latency_ms=latency_ms, token_count=None)
+            ranges = sense_physical_maze(task, state.position, state.heading)
+            event["physical_wall_ranges_m"] = {"front": ranges.front_m, "left": ranges.left_m, "right": ranges.right_m, "rear": ranges.rear_m}
             event["physical_macro"] = {
                 "completed": physical_completed,
                 "ticks": macro_ticks,
