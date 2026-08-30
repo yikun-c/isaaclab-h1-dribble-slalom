@@ -6,7 +6,7 @@ The project is deliberately not a claim that LLMs outperform graph search. A* is
 
 ## Current verified state
 
-The CPU experiment core is complete and reproducible:
+The deterministic CPU core and bounded development integration are complete and reproducible. The final sealed evaluation and final video are still pending.
 
 - Deterministic 9×9 physical-maze topology, semantic blue-checkpoint/red-forbidden task, and replayable high-level action contract.
 - Sealed splits: 2,000 training seeds, 200 development seeds, 500 IID-final seeds, and 500 OOD-final seeds.
@@ -19,10 +19,13 @@ The CPU experiment core is complete and reproducible:
 | DFS with explicit visited memory | 200 / 200 | 0.564 | Records actual exploration and backtracking |
 | Right-hand rule | 46 / 200 | 0.719 on successes | 154 forbidden-cell failures |
 
-- A synchronized 129-decision replay log records local perception, external memory, public decision summary, tool output and physical outcome.
-- A 43-second **A* trace layout prototype** verifies the video side-panel design. It is explicitly labelled as an oracle prototype, not LLM or H1 performance evidence.
+- Qwen3.5-2B LoRA SFT study with exact model revision, source datasets, adapters, and JSON development reports recorded locally (all large artifacts are Git-ignored).
+- Direct SFT: 93.75% exact next-action accuracy and 100% valid JSON on 64 unseen development states, but only 1/3 closed-loop development mazes completed. A recovery-data continuation lowered training loss yet dropped completion to 0/3; this negative result is retained.
+- Corrected **Qwen3.5 + local-memory execution guard** hybrid: 3/3 fixed development mazes completed, 398 decisions, 100% valid JSON, zero mean collisions, 1.67 mean repeated states, and 199 logged executor overrides. This is not a pure-LLM claim and not a final-test result.
+- The official H1 low-level policy was verified inside 100 collidable maze walls. A three-decision physical bridge used real Qwen output `MOVE_FORWARD → TURN_RIGHT → MOVE_FORWARD`, with measured H1 macro completion from logical `(0,0)` to `(1,1)`.
+- Versioned video evidence: a 27-second SFT/evaluation clip and a 28.25-second development-log replay. Both are truth-labelled and visually inspected; neither is the final film.
 
-Current hard blocker: Windows reports `OSError 1455` while loading the local 3.09GB Qwen model, and the one-environment Isaac smoke test also exited before completion while available page/swap was critically low. See [PROJECT_STATUS.md](PROJECT_STATUS.md) before attempting any GPU work.
+Windows virtual-memory recovery is complete. The remaining environment blocker is RTX camera/recorder native-DLL startup in visible Isaac sessions; headless physics/planner bridge tests remain reproducible. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for precise evidence and recovery.
 
 ## Architecture
 
@@ -66,19 +69,24 @@ $python = 'D:\IsaacLab\.venv\Scripts\python.exe'
 
 Generated artifacts are intentionally excluded from Git. Each result is versioned and accompanied by seed/config metadata.
 
-## Model and SFT plan
+## Model and SFT evidence
 
-The first model gate is [Qwen/Qwen2.5-1.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct), pinned locally under `models/` with a revision and SHA-256 manifest. Its Apache-2.0 license and model decision are recorded in [MODEL_DECISION.md](MODEL_DECISION.md).
+The primary development model is [Qwen/Qwen3.5-2B](https://huggingface.co/Qwen/Qwen3.5-2B), pinned locally at revision `15852e8c16360a2fea060d615a32b45270f8a8fc`. Qwen2.5-1.5B and Qwen3-1.7B are preserved as local comparators. Exact licensing, runtime isolation, and measured GPU use are recorded in [MODEL_DECISION.md](MODEL_DECISION.md).
 
-After Windows virtual-memory recovery, run exactly one short smoke run before scaling:
+The Qwen3.5 adapter and development-only evaluators can be invoked as follows after local artifacts have been generated:
 
 ```powershell
 $python = 'D:\IsaacLab\.venv\Scripts\python.exe'
-& $python scripts\smoke_qwen_inference.py --max-new-tokens 64
-& $python scripts\train_maze_sft.py --max-steps 20 --run-name qwen2_5_1_5b_maze_sft_smoke_v1
+& $python scripts\smoke_qwen35_inference.py
+& $python scripts\evaluate_qwen35_closed_loop.py `
+  --adapter-dir runs\qwen35_sft\<adapter> `
+  --episodes 3 --max-decisions 256 --execution-guard `
+  --output artifacts\maze\<versioned_report>.json
+& $python scripts\render_llm_training_evidence.py
+& $python scripts\render_qwen_guard_trace.py
 ```
 
-The trainer performs LoRA SFT only. DPO is deferred until SFT clears its predeclared grid gate, then must be compared with chosen-only SFT and a random-label DPO control.
+The trainer performs LoRA SFT. DPO is not yet implemented or claimed; it must be compared with chosen-only SFT and a random-label control before any conclusion.
 
 ## Project status and recovery
 
@@ -99,7 +107,13 @@ scripts/evaluate_maze_baselines.py
 scripts/replay_maze_agent.py Trace JSONL generator for evaluation and video overlays
 scripts/render_maze_trace_prototype.py
                               Truth-labelled side-panel layout renderer
-scripts/train_maze_sft.py    Bounded LoRA SFT entry point
+scripts/train_qwen35_sft.py  Bounded Qwen3.5 LoRA SFT entry point
+scripts/evaluate_qwen35_closed_loop.py
+                              Direct or explicitly guarded development evaluator
+scripts/smoke_qwen35_h1_multidecision.py
+                              Measured Qwen-to-H1 physical macro bridge smoke
+scripts/render_llm_training_evidence.py
+                              Training, ablation and hybrid-result video evidence
 tests/                       Pure CPU tests
 ```
 
