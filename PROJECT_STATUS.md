@@ -260,6 +260,11 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 - GitHub: local branch `feature/llm-maze-agent` was pushed and verified at `https://github.com/yikun-c/isaaclab-h1-dribble-slalom.git`, commit `2f625f88bc3a5e0c0779c70fe23f18680e1697b0`. `origin` was updated from the redirecting predecessor URL to this canonical remote. No pull request or default-branch change was made.
 - Pending push: evidence rough-cut commit `2bbe4fc` is local and currently ahead of `origin/feature/llm-maze-agent`. A direct retry failed only because `github.com:443` could not be reached after 21 seconds. Do not create a new commit or branch; once connectivity is restored, run `git push origin feature/llm-maze-agent` and verify the remote SHA.
 
+### Narrated evidence rough cut — 2026-08-31
+
+- Voiceover source is versioned at `assets\video\evidence_cut_v1_voiceover.json`. `scripts\render_evidence_voiceover.py` generated five Chinese `zh-CN-XiaoxiaoNeural` segments and recorded raw/output durations in `artifacts\audio\evidence_cut_v1\manifest.json`; each output was tempo-matched to its evidence segment.
+- `artifacts\video\llm_h1_maze_evidence_cut_v2_voiceover.mp4` is 116.267 seconds, 1280×720, 30fps H.264 plus AAC 24kHz mono (4,294,455 bytes). `scripts\mux_evidence_cut_voiceover.py` muxed only the exact versioned narration segments. FFprobe verifies both streams and matched duration. Silence detection found only normal sentence pauses (maximum ~0.88s) plus a 0.62s ending tail, with no long unexplained silence. This is an accepted narrated **rough cut**, still not the final 8–12 minute film or final subtitle/QC deliverable.
+
 ### Current task and next recovery-safe command
 
 1. Diagnose the intermittent visible-D3D12 Kit/DLL startup failure before any further physical-camera attempt. Preserve the rejected v2 output and use it only as failure evidence, never as a final shot.
