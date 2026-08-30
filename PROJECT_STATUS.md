@@ -247,6 +247,12 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 - New versioned video evidence: `artifacts\video\llm_training_evidence_v3.mp4` (27.000s, 1280×720, 30fps, 5,543,680 bytes) adds the labelled 3/3 hybrid result after the SFT and recovery negative result. End-frame visual inspection passed; automated black-frame probe found no black interval.
 - `artifacts\video\qwen35_memory_guard_replay_v1.mp4` (28.250s, 1280×720, 12fps, 3,556,284 bytes) renders the actual 113-decision seed-657 development event log. It shows the proposed action, executed action, guard reason, path, and current result per decision; it is visibly labelled as non-physical-H1 and non-final-test footage. Mid-frame inspection and black-frame probe passed.
 
+### Bounded DPO and causal control — 2026-08-31
+
+- `scripts\generate_maze_dpo_pairs.py` built 18,782 auditable train-only preference pairs plus 18,782 deterministic random-label controls. Each rejected action is a continuing but higher-cost alternative selected by offline A* cost comparison, not a trivial `STOP`; the full pair set has mean cost gap `1.2543`, with 9,333 deterministic random swaps in the control.
+- `scripts\train_qwen35_dpo.py` implements a frozen SFT-adapter reference and trainable LoRA policy with the standard pairwise log-ratio DPO loss. Correct-label and random-label 5-step runs both completed with versioned adapters. Correct-label loss decreased `0.663 → 0.209`; random-label margins differed as expected from the label swap.
+- Independent 64-state development action evaluation: correct-label DPO smoke `92.19%` exact / `100%` valid JSON; random-label DPO control also `92.19%` / `100%`; prior SFT was `93.75%` / `100%`. Therefore this five-step DPO smoke is a negative/no-improvement result, not evidence that DPO helps. No closed-loop or final claim is made from it.
+
 ### Camera-recorder environment blocker — 2026-08-31
 
 - Versioned visible-D3D12 recording attempts `qwen35_h1_physical_bridge_v1` and `v2` produced no output because Isaac crashed before project script logic with Windows `0xc0000139`. The first exposed `h5py._errors` DLL initialization; the second showed optional RTX `generic_model_output` / lidar/radar dependent-DLL failures after the h5py preload.
