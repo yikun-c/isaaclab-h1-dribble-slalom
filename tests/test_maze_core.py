@@ -9,7 +9,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from maze_agent import Action, Heading, astar_plan, build_split_manifest, build_task, dfs_plan, observe, oracle_next_action, run_actions, step, velocity_for_grid_action
+from maze_agent import Action, Heading, TopologicalMemory, astar_plan, build_split_manifest, build_task, dfs_plan, guard_action, observe, oracle_next_action, run_actions, step, velocity_for_grid_action
 from maze_agent.core import reset
 from maze_agent.physical_maze import maze_wall_specs
 
@@ -116,3 +116,20 @@ def test_h1_bridge_preserves_grid_turn_direction_across_coordinate_conventions()
     assert velocity_for_grid_action(Action.TURN_LEFT).angular_z_rps < 0.0
     assert velocity_for_grid_action(Action.TURN_RIGHT).angular_z_rps > 0.0
     assert velocity_for_grid_action(Action.TURN_RIGHT).linear_x_mps > 0.0
+
+
+def test_local_memory_guard_prevents_wall_actions_and_marks_return_edge_executed() -> None:
+    task = build_task(9, 9, 2026)
+    state = reset(task)
+    memory = TopologicalMemory()
+    memory.record_observation(task, state)
+    # Seed 2026 starts with only east open; looking north would hit a known wall.
+    state = step(task, state, Action.TURN_LEFT)
+    guarded = guard_action(task, state, memory, Action.MOVE_FORWARD)
+    assert guarded.overridden and guarded.reason == "prevent_known_wall"
+    before_move = reset(task)
+    after_move = step(task, before_move, Action.MOVE_FORWARD)
+    memory.record_transition(task, before_move, Action.MOVE_FORWARD, after_move)
+    summary = memory.compact_summary(after_move)
+    assert Heading.WEST.value in summary["visited_exits"]
+    assert memory.nodes["N1_0"].parent_exit == Heading.WEST.value

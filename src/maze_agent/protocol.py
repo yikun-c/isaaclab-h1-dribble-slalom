@@ -52,6 +52,7 @@ class NodeMemory:
     explored_exits: set[str] = field(default_factory=set)
     known_dead_end: bool = False
     landmarks: set[str] = field(default_factory=set)
+    parent_exit: str | None = None
 
 
 @dataclass
@@ -78,14 +79,22 @@ class TopologicalMemory:
             current.known_dead_end = True
 
     def record_transition(self, task: MazeTask, before: MazeState, action: Action, after: MazeState) -> None:
-        self.record_observation(task, before)
         if before.position != after.position:
             direction = before.heading if action is Action.MOVE_FORWARD else before.heading.opposite()
             origin = node_id(before.position)
             destination = node_id(after.position)
             self._node(before.position).explored_exits.add(direction.value)
+            # Arrival also proves the return edge at the destination; this is
+            # executed-path evidence, not a hidden global-map lookup.
+            destination_record = self._node(after.position)
+            return_exit = direction.opposite().value
+            destination_record.explored_exits.add(return_exit)
+            # Keep the first discovery edge stable for DFS-style return. Using
+            # the most recent state.path parent causes two-node oscillation.
+            if destination_record.parent_exit is None:
+                destination_record.parent_exit = return_exit
             self.transitions.append((origin, direction.value, destination))
-        self.record_observation(task, after)
+        self.checkpoint_complete = self.checkpoint_complete or after.checkpoint_complete
 
     def compact_summary(self, state: MazeState) -> dict[str, Any]:
         known_dead_ends = sorted(node for node, record in self.nodes.items() if record.known_dead_end)

@@ -238,6 +238,15 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 - `artifacts\h1\dynamic_velocity_command_v2.json`: over 150 ticks, the low-speed walking-turn command `(0.12,0,0.55)` produced a measured positive yaw change of `0.283rad`, confirming the needed locomotion behavior.
 - `artifacts\h1\qwen35_h1_multidecision_smoke_v2.json`: a true three-decision Qwen3.5-to-H1 physical smoke completed all three macros. Qwen emitted valid `MOVE_FORWARD` (1,403ms), `TURN_RIGHT` (915ms), and `MOVE_FORWARD` (955ms); measured H1 macro completion was 194/413/187 ticks. The robot advanced from logical `(0,0)` to `(1,0)`, turned to south with `0.172rad` residual yaw error, then physically crossed into `(1,1)`. All 100 collidable wall prims were present. Scope is development-only integration, not full navigation or sealed evaluation.
 
+### Memory-executor ablation and new video evidence — 2026-08-31
+
+- First guard implementation is retained at `artifacts\maze\eval_qwen35_closedloop_memory_guard_dev1_v1.json`: `0/1` success, 256 decisions, 241 overrides, and 232 repeated states. Its duplicated visit accounting plus latest-path backtracking caused a two-node oscillation; it is a negative result.
+- The corrected executor records each observation once and remembers each node's stable first-discovery return edge. It uses only executed edges, current local openings, locally adjacent red landmark, and odometry keys; it does not query future/unseen maze cells. Its action overrides are logged as `memory_guard:*` alongside the original Qwen proposal.
+- Corrected one-maze report `...guard_dev1_v2.json`: `1/1`, 113 decisions, 60 overrides, 0 collisions, 2 repeated states.
+- Corrected fixed development-suite report `artifacts\maze\eval_qwen35_closedloop_memory_guard_dev3_v1.json`: `3/3` success, 398 decisions, 100% valid JSON, 0 mean collisions, 1.67 mean repeated states, and 199 guard overrides. This is explicitly **Qwen3.5 plus local-memory execution guard**, not pure LLM performance; it is development-only and final split files were not loaded.
+- New versioned video evidence: `artifacts\video\llm_training_evidence_v3.mp4` (27.000s, 1280×720, 30fps, 5,543,680 bytes) adds the labelled 3/3 hybrid result after the SFT and recovery negative result. End-frame visual inspection passed; automated black-frame probe found no black interval.
+- `artifacts\video\qwen35_memory_guard_replay_v1.mp4` (28.250s, 1280×720, 12fps, 3,556,284 bytes) renders the actual 113-decision seed-657 development event log. It shows the proposed action, executed action, guard reason, path, and current result per decision; it is visibly labelled as non-physical-H1 and non-final-test footage. Mid-frame inspection and black-frame probe passed.
+
 ### Current task and next recovery-safe command
 
 1. Diagnose the intermittent visible-D3D12 Kit/DLL startup failure before any further physical-camera attempt. Preserve the rejected v2 output and use it only as failure evidence, never as a final shot.

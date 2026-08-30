@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -14,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "runtime" / "qwen35_transformers"))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from maze_agent import TopologicalMemory, build_task, decision_event, observe, parse_planner_response, step
+from maze_agent import TopologicalMemory, build_task, decision_event, guard_action, observe, parse_planner_response, step
 from maze_agent.core import reset
 from maze_agent.sft import SYSTEM_PROMPT
 
@@ -58,6 +59,8 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=3)
     parser.add_argument("--max-decisions", type=int, default=128)
     parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument("--execution-guard", action="store_true", help="Use the explicitly labelled local-memory executor guard.")
+    parser.add_argument("--guard-revisit-threshold", type=int, default=2)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -83,6 +86,7 @@ def main() -> None:
             events: list[dict] = []
             seen: set[tuple[tuple[int, int], str, bool]] = set()
             loops = 0
+            guard_overrides = 0
             for _ in range(args.max_decisions):
                 memory.record_observation(task, state)
                 memory_before = memory.compact_summary(state)
@@ -104,10 +108,21 @@ def main() -> None:
                 )
                 latency_ms = (time.perf_counter() - started) * 1000
                 raw = processor.decode(output_ids[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True)
-                decision = parse_planner_response(raw)
+                proposed = parse_planner_response(raw)
+                decision = proposed
+                guard_reason = None
+                if args.execution_guard:
+                    guarded = guard_action(task, state, memory, proposed.action, args.guard_revisit_threshold)
+                    guard_reason = guarded.reason
+                    guard_overrides += int(guarded.overridden)
+                    if guarded.overridden:
+                        decision = replace(
+                            proposed,
+                            action=guarded.action,
+                            fallback_reason=f"memory_guard:{guarded.reason}",
+                        )
                 after = step(task, state, decision.action)
-                events.append(
-                    decision_event(
+                event = decision_event(
                         task,
                         state,
                         decision,
@@ -117,7 +132,10 @@ def main() -> None:
                         latency_ms=latency_ms,
                         token_count=None,
                     )
-                )
+                if args.execution_guard:
+                    event["planner"]["proposed_action"] = proposed.action.value
+                    event["planner"]["guard_reason"] = guard_reason
+                events.append(event)
                 memory.record_transition(task, state, decision.action, after)
                 state = after
                 if state.terminated:
@@ -132,14 +150,17 @@ def main() -> None:
                     "collisions": state.collisions,
                     "loop_observations": loops,
                     "valid_outputs": sum(event["planner"]["valid"] for event in events),
+                    "guard_overrides": guard_overrides,
                     "events": events,
                 }
             )
     elapsed = time.perf_counter() - total_started
     decisions = sum(episode["decisions"] for episode in episodes)
     report = {
-        "evaluation_version": "qwen35-maze-closed-loop-v1",
+        "evaluation_version": "qwen35-maze-closed-loop-v2",
         "scope": "development-only causal-memory closed-loop mazes; final splits were not loaded",
+        "execution_interface": "LLM plus local-memory guard" if args.execution_guard else "LLM proposed action directly executed",
+        "guard_revisit_threshold": args.guard_revisit_threshold if args.execution_guard else None,
         "model_dir": str(args.model_dir.resolve()),
         "adapter_dir": str(args.adapter_dir.resolve()),
         "episodes": len(episodes),
@@ -149,6 +170,7 @@ def main() -> None:
         "valid_output_rate": sum(episode["valid_outputs"] for episode in episodes) / max(1, decisions),
         "mean_collisions": sum(episode["collisions"] for episode in episodes) / len(episodes),
         "mean_loop_observations": sum(episode["loop_observations"] for episode in episodes) / len(episodes),
+        "total_guard_overrides": sum(episode["guard_overrides"] for episode in episodes),
         "elapsed_seconds": elapsed,
         "episodes_detail": episodes,
     }

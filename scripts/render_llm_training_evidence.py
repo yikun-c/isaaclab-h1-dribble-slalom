@@ -70,12 +70,17 @@ def main() -> None:
         type=Path,
         default=PROJECT_ROOT / "artifacts/maze/eval_qwen35_closedloop_memory_recovery_dev3_v1.json",
     )
+    parser.add_argument(
+        "--guard-closed-eval",
+        type=Path,
+        default=PROJECT_ROOT / "artifacts/maze/eval_qwen35_closedloop_memory_guard_dev3_v1.json",
+    )
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument(
-        "--output", type=Path, default=PROJECT_ROOT / "artifacts/video/llm_training_evidence_v2.mp4"
+        "--output", type=Path, default=PROJECT_ROOT / "artifacts/video/llm_training_evidence_v3.mp4"
     )
     parser.add_argument(
-        "--metadata-output", type=Path, default=PROJECT_ROOT / "artifacts/video/llm_training_evidence_v2.json"
+        "--metadata-output", type=Path, default=PROJECT_ROOT / "artifacts/video/llm_training_evidence_v3.json"
     )
     args = parser.parse_args()
     if args.fps <= 0:
@@ -87,6 +92,7 @@ def main() -> None:
     recovery_points = training_points(load_json(args.recovery_run / "checkpoint-300/trainer_state.json"))
     base_action, base_closed = load_json(args.base_action_eval), load_json(args.base_closed_eval)
     recovery_action, recovery_closed = load_json(args.recovery_action_eval), load_json(args.recovery_closed_eval)
+    guard_closed = load_json(args.guard_closed_eval)
 
     import cv2
     import numpy as np
@@ -188,7 +194,19 @@ def main() -> None:
         draw.text((72, 676), "下一步不是继续堆数据，而是改进记忆—执行接口并重新验证。", font=small_font, fill=muted)
         return image
 
-    sections = ((render_data, 4), (render_base, 6), (render_eval, 5), (render_recovery, 6))
+    def render_guard(frame_index: int) -> Image.Image:
+        image = Image.new("RGB", (width, height), bg)
+        draw = ImageDraw.Draw(image)
+        draw_header(draw, "5 / 5  修正记忆—执行接口：开发集 3/3 完成，但不是纯 LLM")
+        card(draw, (72, 140, 430, 320), "闭环完成", f"{guard_closed['successes']} / {guard_closed['episodes']}", "固定 3 个开发迷宫 · 非封存最终集", green)
+        card(draw, (461, 140, 819, 320), "有效 JSON", f"{guard_closed['valid_output_rate'] * 100:.0f}%", "动作协议仍由 Qwen3.5 输出", blue)
+        card(draw, (850, 140, 1208, 320), "平均重复状态", f"{guard_closed['mean_loop_observations']:.2f}", "原始 SFT 为 4.67", green)
+        card(draw, (72, 390, 575, 570), "守卫覆盖", f"{guard_closed['total_guard_overrides']}", "已知墙 / 重复 / 早停时才介入", orange)
+        card(draw, (705, 390, 1208, 570), "碰撞", f"{guard_closed['mean_collisions']:.0f}", "398 次开发决策累计", green)
+        draw.text((72, 632), "结论：这是 Qwen3.5 + 本地记忆执行守卫的混合系统，不能称为纯 LLM 规划胜利。", font=body_font, fill=text)
+        return image
+
+    sections = ((render_data, 4), (render_base, 6), (render_eval, 5), (render_recovery, 6), (render_guard, 6))
     total_frames = 0
     try:
         for render, seconds in sections:
@@ -202,12 +220,12 @@ def main() -> None:
 
     metadata = {
         "asset_type": "training_evidence",
-        "truth_label": "Development-only Qwen3.5-2B LoRA SFT evidence; recovery result is a retained negative result.",
+        "truth_label": "Development-only Qwen3.5-2B LoRA SFT evidence. The final result is explicitly a Qwen plus local-memory execution-guard hybrid; recovery is retained as a negative result.",
         "output": str(output),
         "fps": args.fps,
         "frames": total_frames,
         "duration_seconds": total_frames / args.fps,
-        "sources": [str(path.resolve()) for path in (args.base_run, args.recovery_run, args.base_action_eval, args.base_closed_eval, args.recovery_action_eval, args.recovery_closed_eval)],
+        "sources": [str(path.resolve()) for path in (args.base_run, args.recovery_run, args.base_action_eval, args.base_closed_eval, args.recovery_action_eval, args.recovery_closed_eval, args.guard_closed_eval)],
         "metrics": {
             "base_train_loss": base_summary["metrics"]["train_loss"],
             "base_action_exact_rate": base_action["exact_action_accuracy"],
@@ -217,6 +235,9 @@ def main() -> None:
             "recovery_action_exact_rate": recovery_action["exact_action_accuracy"],
             "recovery_closed_successes": recovery_closed["successes"],
             "recovery_closed_episodes": recovery_closed["episodes"],
+            "guard_closed_successes": guard_closed["successes"],
+            "guard_closed_episodes": guard_closed["episodes"],
+            "guard_total_overrides": guard_closed["total_guard_overrides"],
         },
     }
     write_json_atomic(args.metadata_output.resolve(), metadata)

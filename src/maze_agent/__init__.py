@@ -5,6 +5,7 @@ from .core import Action, Heading, MazeState, MazeTask, build_task, observe, ste
 from .protocol import PlannerDecision, TopologicalMemory, decision_event, parse_planner_response
 from .physical_maze import WallSpec, maze_wall_specs
 from .h1_bridge import GRID_HEADING_WORLD_YAW, MacroVelocity, velocity_for_grid_action
+from .execution_guard import GuardedAction, guard_action
 from .splits import SplitManifest, build_split_manifest
 
 __all__ = [
