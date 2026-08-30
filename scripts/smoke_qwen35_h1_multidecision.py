@@ -51,6 +51,7 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Run a bounded multi-decision Qwen3.5 H1 maze bridge smoke.")
 parser.add_argument("--seed", type=int, default=2026)
 parser.add_argument("--cell-size", type=float, default=1.8, help="Physical maze cell width in metres.")
+parser.add_argument("--locomotion-profile", choices=("rough", "flat"), default="rough", help="Official H1 checkpoint/config profile.")
 parser.add_argument("--decisions", type=int, default=3)
 parser.add_argument("--max-ticks-per-macro", type=int, default=1100)
 parser.add_argument("--forward-settle-distance", type=float, default=1.6, help="Metres between short stand-recovery intervals during a long forward macro.")
@@ -115,7 +116,8 @@ def main() -> None:
     from isaaclab.sim.utils.stage import get_current_stage
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
     from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
-    from isaaclab_tasks.manager_based.locomotion.velocity.config.h1.agents.rsl_rl_ppo_cfg import H1RoughPPORunnerCfg
+    from isaaclab_tasks.manager_based.locomotion.velocity.config.h1.agents.rsl_rl_ppo_cfg import H1FlatPPORunnerCfg, H1RoughPPORunnerCfg
+    from isaaclab_tasks.manager_based.locomotion.velocity.config.h1.flat_env_cfg import H1FlatEnvCfg_PLAY
     from isaaclab_tasks.manager_based.locomotion.velocity.config.h1.rough_env_cfg import H1RoughEnvCfg_PLAY
 
     from maze_agent import (
@@ -155,10 +157,11 @@ def main() -> None:
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.20, 0.40, 0.62), roughness=0.64),
         )
         wall_cfg.func(f"/World/Maze/{spec.name}", wall_cfg, translation=spec.translation)
-    checkpoint = get_published_pretrained_checkpoint("rsl_rl", "Isaac-Velocity-Rough-H1-v0")
+    task_name = "Isaac-Velocity-Flat-H1-v0" if args.locomotion_profile == "flat" else "Isaac-Velocity-Rough-H1-v0"
+    checkpoint = get_published_pretrained_checkpoint("rsl_rl", task_name)
     if checkpoint is None:
         raise RuntimeError("official H1 checkpoint unavailable")
-    cfg = H1RoughEnvCfg_PLAY()
+    cfg = H1FlatEnvCfg_PLAY() if args.locomotion_profile == "flat" else H1RoughEnvCfg_PLAY()
     cfg.scene.num_envs = 1
     cfg.scene.clone_in_fabric = False
     cfg.scene.terrain.terrain_type = "plane"
@@ -186,7 +189,8 @@ def main() -> None:
     simulation_ticks = 0
     capture_context = {"decision": 0, "proposed": "等待模型", "executed": "等待模型", "guard": None}
     try:
-        runner = OnPolicyRunner(wrapped, H1RoughPPORunnerCfg().to_dict(), log_dir=None, device=env.device)
+        runner_cfg = H1FlatPPORunnerCfg() if args.locomotion_profile == "flat" else H1RoughPPORunnerCfg()
+        runner = OnPolicyRunner(wrapped, runner_cfg.to_dict(), log_dir=None, device=env.device)
         runner.load(checkpoint)
         locomotion = runner.get_inference_policy(device=env.device)
         observations, _ = wrapped.reset()
@@ -397,6 +401,7 @@ def main() -> None:
             "model_dir": str(args.model_dir.resolve()),
             "adapter_dir": str(args.adapter_dir.resolve()),
             "locomotion_checkpoint": str(checkpoint),
+            "locomotion_profile": args.locomotion_profile,
         }
         if writer is not None:
             writer.release()
@@ -440,6 +445,7 @@ if __name__ == "__main__":
                 "decisions": args.decisions,
                 "max_ticks_per_macro": args.max_ticks_per_macro,
                 "execution_guard": args.execution_guard,
+                "locomotion_profile": args.locomotion_profile,
                 "progress": RUN_PROGRESS,
             },
         )
