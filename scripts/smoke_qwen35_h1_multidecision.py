@@ -137,6 +137,10 @@ def main() -> None:
 
     if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2 or args.forward_settle_distance <= 0.0:
         raise ValueError("decision/macro budgets and cell-size must be positive")
+    # The high-level task is seed-controlled; seed PhysX/PyTorch as well so a
+    # controller comparison is not confounded by a new random locomotion reset.
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
     task = build_task(9, 9, args.seed)
     RUN_PROGRESS.update(
         {
@@ -161,6 +165,7 @@ def main() -> None:
     if checkpoint is None:
         raise RuntimeError("official H1 checkpoint unavailable")
     cfg = H1FlatEnvCfg_PLAY() if args.locomotion_profile == "flat" else H1RoughEnvCfg_PLAY()
+    cfg.seed = args.seed
     cfg.scene.num_envs = 1
     cfg.scene.clone_in_fabric = False
     cfg.scene.terrain.terrain_type = "plane"
@@ -314,11 +319,14 @@ def main() -> None:
                 next_settle_distance = args.forward_settle_distance
                 recovery_intervals = 0
                 for _ in range(args.max_ticks_per_macro):
-                    if args.macro_controller == "pose-feedback" and decision.action is Action.MOVE_FORWARD:
+                    if args.macro_controller == "pose-feedback":
                         root_before_command = env.scene["robot"].data.root_pos_w[0]
                         feedback = pose_feedback_velocity(
                             target_xy=target_xy,
-                            target_yaw=world_yaw,
+                            # BACKTRACK preserves the logical body heading and
+                            # therefore needs a negative base-x command toward
+                            # its target, not a hidden 180-degree reorientation.
+                            target_yaw=GRID_HEADING_WORLD_YAW[state.heading],
                             current_xy=(float(root_before_command[0].item()), float(root_before_command[1].item())),
                             current_yaw=float(env.scene["robot"].data.heading_w[0].item()),
                         )

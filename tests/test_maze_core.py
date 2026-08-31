@@ -130,11 +130,14 @@ def test_h1_pose_feedback_adapter_tracks_world_target_in_body_frame() -> None:
     assert abs(north.linear_x_mps) < 1.0e-6
     assert north.linear_y_mps > 0.0
     assert north.angular_z_rps > 0.0
+    backtrack = pose_feedback_velocity(target_xy=(-3.6, 0.0), target_yaw=0.0, current_xy=(0.0, 0.0), current_yaw=0.0)
+    assert backtrack.linear_x_mps < 0.0
+    assert backtrack.linear_y_mps == 0.0
     turn = turn_feedback_velocity(current_yaw=0.0, target_yaw=math.pi / 2.0)
     assert turn.linear_x_mps > 0.0
     assert turn.angular_z_rps > 0.0
     late_turn = turn_feedback_velocity(current_yaw=1.36, target_yaw=math.pi / 2.0)
-    assert late_turn.angular_z_rps >= 0.30
+    assert late_turn.angular_z_rps >= 0.40
 
 
 def test_local_memory_guard_prevents_wall_actions_and_marks_return_edge_executed() -> None:
