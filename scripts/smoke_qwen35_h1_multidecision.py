@@ -52,6 +52,7 @@ parser.add_argument("--max-ticks-per-macro", type=int, default=1100)
 parser.add_argument("--forward-settle-distance", type=float, default=1.6, help="Metres between short stand-recovery intervals during a long forward macro.")
 parser.add_argument("--macro-controller", choices=("fixed", "pose-feedback"), default="fixed", help="Use fixed velocity primitives or bounded root-pose feedback around the official policy.")
 parser.add_argument("--turn-tolerance-rad", type=float, default=0.26, help="Measured yaw residual allowed before pose-feedback forward control re-centres the next cell traversal.")
+parser.add_argument("--feedback-max-lateral-mps", type=float, default=0.10, help="Bounded body-frame lateral correction for pose-feedback traversal.")
 parser.add_argument("--execution-guard", action="store_true", help="Use the labelled local-memory execution guard.")
 parser.add_argument("--guard-revisit-threshold", type=int, default=2)
 parser.add_argument("--adapter-dir", type=Path, default=PROJECT_ROOT / "runs/qwen35_sft/2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1/adapter")
@@ -136,7 +137,7 @@ def main() -> None:
     from maze_agent.physical_maze import maze_wall_specs
     from maze_agent.sft import SYSTEM_PROMPT
 
-    if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2 or args.forward_settle_distance <= 0.0 or not 0.05 <= args.turn_tolerance_rad <= 0.50:
+    if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2 or args.forward_settle_distance <= 0.0 or not 0.05 <= args.turn_tolerance_rad <= 0.50 or not 0.01 <= args.feedback_max_lateral_mps <= 0.30:
         raise ValueError("decision/macro budgets and cell-size must be positive")
     # The high-level task is seed-controlled; seed PhysX/PyTorch as well so a
     # controller comparison is not confounded by a new random locomotion reset.
@@ -330,6 +331,7 @@ def main() -> None:
                             target_yaw=GRID_HEADING_WORLD_YAW[state.heading],
                             current_xy=(float(root_before_command[0].item()), float(root_before_command[1].item())),
                             current_yaw=float(env.scene["robot"].data.heading_w[0].item()),
+                            max_lateral_mps=args.feedback_max_lateral_mps,
                         )
                         last_velocity_target = feedback.as_tuple()
                     else:
@@ -362,6 +364,7 @@ def main() -> None:
                     "macro_controller": args.macro_controller,
                     "last_velocity_target": last_velocity_target,
                     "max_lateral_command_mps": max_lateral_command,
+                    "configured_max_lateral_mps": args.feedback_max_lateral_mps,
                     "max_yaw_command_rps": max_yaw_command,
                 }
             else:
