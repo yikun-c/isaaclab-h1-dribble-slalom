@@ -58,6 +58,7 @@ parser.add_argument("--heading-correction-gain", type=float, default=0.75, help=
 parser.add_argument("--max-heading-offset-rad", type=float, default=0.22, help="Maximum feedback yaw offset while traversing one cell.")
 parser.add_argument("--execution-guard", action="store_true", help="Use the labelled local-memory execution guard.")
 parser.add_argument("--guard-revisit-threshold", type=int, default=2)
+parser.add_argument("--replay-event-log", type=Path, help="Optional accepted CPU Qwen+guard report. Replays its executed actions on H1 and labels the result as a frozen trace, not live Qwen.")
 parser.add_argument("--adapter-dir", type=Path, default=PROJECT_ROOT / "runs/qwen35_sft/2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1/adapter")
 parser.add_argument("--model-dir", type=Path, default=PROJECT_ROOT / "models/qwen3_5_2b")
 parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "artifacts/h1/qwen35_h1_multidecision_smoke_v2.json")
@@ -148,6 +149,15 @@ def main() -> None:
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     task = build_task(9, 9, args.seed)
+    replay_events = None
+    if args.replay_event_log:
+        replay_report = json.loads(args.replay_event_log.read_text(encoding="utf-8"))
+        candidates = [item for item in replay_report.get("episodes_detail", []) if int(item.get("maze_seed", -1)) == args.seed]
+        if len(candidates) != 1 or not candidates[0].get("success"):
+            raise ValueError("replay event log must contain exactly one successful episode for --seed")
+        replay_events = candidates[0]["events"]
+        if args.decisions < len(replay_events):
+            raise ValueError("--decisions must cover every frozen replay event")
     RUN_PROGRESS.update(
         {
             "status": "initializing",
@@ -209,9 +219,10 @@ def main() -> None:
         root_initial = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
         if spawned_walls != len(walls) or max(abs(root_initial[0]), abs(root_initial[1])) > 0.65:
             raise RuntimeError("H1 was not initialized at the physical maze start")
-        processor = AutoProcessor.from_pretrained(args.adapter_dir, local_files_only=True)
-        base = AutoModelForMultimodalLM.from_pretrained(args.model_dir, local_files_only=True, dtype=torch.bfloat16).to("cuda").eval()
-        model = PeftModel.from_pretrained(base, args.adapter_dir, local_files_only=True).eval()
+        if replay_events is None:
+            processor = AutoProcessor.from_pretrained(args.adapter_dir, local_files_only=True)
+            base = AutoModelForMultimodalLM.from_pretrained(args.model_dir, local_files_only=True, dtype=torch.bfloat16).to("cuda").eval()
+            model = PeftModel.from_pretrained(base, args.adapter_dir, local_files_only=True).eval()
         term = env.command_manager.get_term("base_velocity")
         state = reset(task)
         memory = TopologicalMemory()
@@ -271,25 +282,36 @@ def main() -> None:
                         writer.write(cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR))
                         recorded_frames += 1
 
-        for decision_index in range(args.decisions):
+        decision_budget = len(replay_events) if replay_events is not None else args.decisions
+        for decision_index in range(decision_budget):
             if state.terminated:
                 break
             RUN_PROGRESS.update({"status": "planning", "decision_index": decision_index, "logical_position": list(state.position), "logical_heading": state.heading.value})
             memory.record_observation(task, state)
             memory_before = memory.compact_summary(state)
-            payload = planner_input(task, state, memory)
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}]
-            prompt = processor.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            inputs = processor(text=prompt, return_tensors="pt").to("cuda")
-            with torch.inference_mode():
-                started = time.perf_counter()
-                output_ids = model.generate(**inputs, max_new_tokens=64, do_sample=False)
-                latency_ms = (time.perf_counter() - started) * 1000.0
-            raw = processor.decode(output_ids[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True)
-            proposed = parse_planner_response(raw)
-            decision = proposed
-            guard_reason = None
-            if args.execution_guard:
+            if replay_events is not None:
+                source = replay_events[decision_index]
+                if tuple(source["before"]["position"]) != state.position or source["before"]["heading"] != state.heading.value:
+                    raise RuntimeError("frozen replay logical state diverged before physical macro")
+                raw = source["planner"]["raw_response"]
+                proposed = parse_planner_response(raw)
+                decision = replace(proposed, action=Action(source["planner"]["action"]), fallback_reason="frozen_qwen_guard_trace")
+                guard_reason = source["planner"].get("guard_reason")
+                latency_ms = None
+            else:
+                payload = planner_input(task, state, memory)
+                messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}]
+                prompt = processor.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                inputs = processor(text=prompt, return_tensors="pt").to("cuda")
+                with torch.inference_mode():
+                    started = time.perf_counter()
+                    output_ids = model.generate(**inputs, max_new_tokens=64, do_sample=False)
+                    latency_ms = (time.perf_counter() - started) * 1000.0
+                raw = processor.decode(output_ids[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True)
+                proposed = parse_planner_response(raw)
+                decision = proposed
+                guard_reason = None
+            if args.execution_guard and replay_events is None:
                 guarded = guard_action(task, state, memory, proposed.action, args.guard_revisit_threshold)
                 guard_reason = guarded.reason
                 if guarded.overridden:
@@ -454,6 +476,8 @@ def main() -> None:
             "maze_seed": args.seed,
             "requested_decisions": args.decisions,
             "execution_interface": "Qwen plus local-memory guard" if args.execution_guard else "Qwen proposed action directly executed",
+            "planner_mode": "frozen_qwen_guard_trace_replay" if replay_events is not None else "live_qwen_generation",
+            "replay_event_log": str(args.replay_event_log.resolve()) if args.replay_event_log else None,
             "guard_revisit_threshold": args.guard_revisit_threshold if args.execution_guard else None,
             "guard_overrides": sum(event["planner"].get("guard_reason") is not None for event in events),
             "completed_macros": sum(event["physical_macro"]["completed"] for event in events),
