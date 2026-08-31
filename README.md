@@ -24,9 +24,9 @@ The deterministic CPU core and bounded development integration are complete and 
 - Corrected **Qwen3.5 + local-memory execution guard** hybrid: 3/3 fixed development mazes completed, 398 decisions, 100% valid JSON, zero mean collisions, 1.67 mean repeated states, and 199 logged executor overrides. This is not a pure-LLM claim and not a final-test result.
 - The official H1 low-level policy was verified inside 100 collidable maze walls. A three-decision physical bridge used real Qwen output `MOVE_FORWARD → TURN_RIGHT → MOVE_FORWARD`, with measured H1 macro completion from logical `(0,0)` to `(1,1)`.
 - Versioned video evidence: a 27-second SFT/evaluation clip and a 28.25-second development-log replay. Both are truth-labelled and visually inspected; neither is the final film.
-- A 116.27-second, silent evidence rough cut combines the H1 bridge data card, training/ablation evidence, baseline comparison, A* layout prototype, and guarded development replay. It is versioned under `artifacts/video/` and explicitly not presented as the final 8–12 minute film.
+- A 142.20-second narrated evidence rough cut begins with a real camera capture of a two-decision Qwen-to-H1 physical-wall bridge, then shows the training/ablation evidence, baseline comparison, A* layout prototype, and guarded development replay. It is versioned under `artifacts/video/` and explicitly not presented as the final 8–12 minute film.
 
-Windows virtual-memory recovery is complete. The remaining environment blocker is RTX camera/recorder native-DLL startup in visible Isaac sessions; headless physics/planner bridge tests remain reproducible. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for precise evidence and recovery.
+Windows virtual-memory recovery is complete. The RTX camera recorder dependency mismatch was repaired inside the Isaac virtual environment (`h5py==3.15.0`, HDF5 1.14.6 ABI, and `tbb==2020.3.254`); the short physical bridge camera capture is reproducible. Continuous long-horizon H1 maze navigation remains unverified. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for exact evidence and recovery.
 
 ## Architecture
 
@@ -87,7 +87,7 @@ $python = 'D:\IsaacLab\.venv\Scripts\python.exe'
 & $python scripts\render_qwen_guard_trace.py
 ```
 
-The trainer performs LoRA SFT. DPO is not yet implemented or claimed; it must be compared with chosen-only SFT and a random-label control before any conclusion.
+The trainer performs LoRA SFT. A bounded 5-step DPO smoke with a deterministic random-label control is also retained: both achieved 92.19% action exactness, below the 93.75% SFT result, so it is explicitly a no-improvement result rather than a DPO claim.
 
 ## Project status and recovery
 
@@ -113,6 +113,8 @@ scripts/evaluate_qwen35_closed_loop.py
                               Direct or explicitly guarded development evaluator
 scripts/smoke_qwen35_h1_multidecision.py
                               Measured Qwen-to-H1 physical macro bridge smoke
+scripts/repair_isaac_camera_runtime.ps1
+                              Venv-only HDF5/TBB repair and ABI verification for the RTX recorder
 scripts/render_llm_training_evidence.py
                               Training, ablation and hybrid-result video evidence
 tests/                       Pure CPU tests

@@ -9,8 +9,8 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-VIDEO = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v6_voiceover_subs.mp4"
-OUTPUT = PROJECT_ROOT / "artifacts/video/qc_llm_h1_evidence_cut_v6.json"
+VIDEO = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v8_voiceover_subs.mp4"
+OUTPUT = PROJECT_ROOT / "artifacts/video/qc_llm_h1_evidence_cut_v8.json"
 
 
 def run(command: list[str]) -> str:
@@ -58,14 +58,14 @@ def main() -> None:
         "rough_cut_acceptance": {
             "has_video_audio_subtitle": {stream["codec_type"] for stream in probe["streams"]} >= {"video", "audio", "subtitle"},
             "no_detected_black_interval": not black_intervals,
-            "subtitle_stream_extractable": subtitle_entries == 5,
-            "duration_match_expected": abs(duration - 121.267) < 0.1,
+            "subtitle_stream_extractable": subtitle_entries == 6,
+            "duration_match_expected": abs(duration - 142.2) < 0.1,
         },
         "final_film_acceptance": False,
         "known_final_gaps": [
             "Duration is about 2 minutes, below the planned 8-12 minute final film.",
             "No accepted long-horizon physical H1 maze navigation recording exists.",
-            "Visible Isaac RTX camera recorder is blocked by native DLL startup failures.",
+            "The camera path is verified only for a short two-decision physical bridge, not a full navigation run.",
             "Final sealed IID/OOD and 50-episode Isaac suites have not been run.",
         ],
     }

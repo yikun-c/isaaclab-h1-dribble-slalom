@@ -9,10 +9,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-import h5py  # noqa: F401 - preload HDF5 DLLs before Kit initializes D3D12
+# The pip Isaac sensor extension expects the legacy oneTBB runtime by the
+# exact name tbb.dll. Keep both dependency directories in this child process
+# only; do not alter the user's global PATH.
+if os.name == "nt":
+    _dll_dirs = (
+        Path(r"D:\IsaacLab\.venv\Library\bin"),
+        Path(r"D:\IsaacLab\.venv\Lib\site-packages\isaacsim\kit\dev\libs\sensors\generic_model_output\bin"),
+    )
+    _dll_handles = [os.add_dll_directory(str(path)) for path in _dll_dirs if path.is_dir()]
+    os.environ["PATH"] = os.pathsep.join(str(path) for path in _dll_dirs if path.is_dir()) + os.pathsep + os.environ["PATH"]
 
 from isaaclab.app import AppLauncher
 
@@ -97,7 +107,7 @@ def main() -> None:
         # still warming up.  Render before recording and reject those buffers
         # instead of allowing an apparently valid but unusable MP4.
         for _ in range(60):
-            env.render(recompute=True)
+            env.sim.render()
         resolution = (1280, 720)
         writer = cv2.VideoWriter(str(temporary), cv2.VideoWriter_fourcc(*"mp4v"), 30, resolution)
         if not writer.isOpened():
@@ -105,10 +115,14 @@ def main() -> None:
         frames = 0
         try:
             for step_index in range(args.steps):
+                with torch.inference_mode():
+                    actions = policy(observations)
+                    observations, _, _, _ = wrapped.step(actions)
                 root = env.scene["robot"].data.root_pos_w[0]
                 root_x, root_y = float(root[0].item()), float(root[1].item())
                 env.sim.set_camera_view(eye=(root_x - 5.2, root_y - 7.6, 6.2), target=(root_x + 3.2, root_y + 3.2, 0.75))
-                rgb = env.render(recompute=True)
+                env.sim.render()
+                rgb = env.render(recompute=False)
                 if rgb is not None and rgb.size:
                     image = Image.fromarray(rgb)
                     if float(np.asarray(image).mean()) < 8.0:
@@ -126,9 +140,6 @@ def main() -> None:
                     )
                     writer.write(cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR))
                     frames += 1
-                with torch.inference_mode():
-                    actions = policy(observations)
-                    observations, _, _, _ = wrapped.step(actions)
         finally:
             writer.release()
         temporary.replace(args.output)

@@ -4,13 +4,13 @@
 - Source project: `D:\ai_dribble_agent_video`
 - Source commit: `a6f6b2248368e6823f8ffab033746532181012d0`
 - Branch: `feature/llm-maze-agent`
-- Current phase: P0 resource recovery plus P1/P3 CPU implementation
-- Current completion: 22% (P1 deterministic core and P3 protocol complete; Isaac and model execution blocked pending resource/model audit)
-- Status updated: 2026-08-30 CST
+- Current phase: bounded physical H1 bridge and narrated evidence cut complete; long-horizon locomotion and final evaluation remain
+- Current completion: 62% (deterministic core, Qwen study, physical walls/rays, short camera bridge, and rough cut verified; no accepted long-horizon H1 navigation, sealed final suite, or 8–12 minute final film)
+- Status updated: 2026-08-31 CST
 
-## Current checkpoint
+## Initial checkpoint (historical)
 
-The new maze project is isolated in its own Git worktree. No Isaac process, GPU training, model download, maze implementation, rendering or publication has been started in this project.
+At project creation, the maze worktree was isolated and no maze-specific Isaac/model/render work had started. Later sections record the completed work and replace this historical checkpoint as current state.
 
 The verified reusable base is `D:\ai_dribble_agent_video`, whose README records:
 
@@ -297,3 +297,19 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 1. Diagnose the intermittent visible-D3D12 Kit/DLL startup failure before any further physical-camera attempt. Preserve the rejected v2 output and use it only as failure evidence, never as a final shot.
 2. Extend the measured macro executor beyond the three-decision smoke, add collision/pose-to-cell verification and compare an auditable memory/execution-interface intervention against retained Qwen3.5 SFT/recovery development results.
 3. Diagnose/replace the camera recorder for the now-correct plane maze, then only after multi-decision development gates run a bounded sealed evaluation and assemble the versioned final video.
+
+### Camera recovery and updated narrated rough cut — 2026-08-31
+
+- The short-camera blocker is resolved, not merely assumed resolved. The Isaac virtual environment now has `h5py 3.15.0` linked to HDF5 `1.14.6` and `tbb 2020.3.254` with `Library\\bin\\tbb.dll` present. This matches Isaac's `generic_model_output` HDF5 ABI; the prior `h5py 3.16` HDF5 2.0 ABI caused the native startup conflict. `scripts\\repair_isaac_camera_runtime.ps1` makes only these venv-local repairs and verifies the ABI.
+- `scripts\\record_h1_physical_maze.py` and `scripts\\smoke_qwen35_h1_multidecision.py` now add the Isaac venv and generic-model-output DLL directories only to their own process, do not preload h5py, render after the physics step, and skip the first RTX accumulation frames. This avoids the earlier startup conflict and empty/black render buffers.
+- The standalone recovery probe `artifacts\\video\\h1_camera_recovery_probe_v6.mp4` is 1.967 seconds, 1280×720 at 30fps, 59 frames and 1,232,894 bytes, with no detected black interval. It proves the recorder stack but is not used as maze evidence because its scene framing is unsuitable.
+- Accepted short physical evidence: `artifacts\\video\\qwen35_h1_physical_bridge_camera_v2.mp4` is 20.933 seconds, 1280×720 at 30fps and 17,724,990 bytes. Its log `artifacts\\h1\\qwen35_h1_physical_bridge_camera_v2.json` records two completed H1 macros in 100 collidable walls: Qwen proposed `MOVE_FORWARD` both times; the local guard executed `MOVE_FORWARD`, then `TURN_RIGHT` at a known wall. It is a bounded development bridge, not complete-maze navigation. Black-frame detection found no interval.
+- Corrected assembly: the previous v6/v7 narration scripts accidentally referenced the old 121.267-second silent source. They are preserved. The corrected `scripts\\compose_evidence_cut.py` source is `llm_h1_maze_evidence_cut_v4.mp4`, and `scripts\\mux_evidence_cut_voiceover.py` / `scripts\\mux_evidence_cut_subtitles.py` emit versioned v8 outputs.
+- Current accepted rough-cut candidate: `artifacts\\video\\llm_h1_maze_evidence_cut_v8_voiceover_subs.mp4` is a 142.200-second 1280×720 30fps H.264/AAC MP4 with an extractable Simplified-Chinese `mov_text` subtitle stream. It starts with the actual physical camera bridge, then supplies new visual evidence for H1 metrics, SFT/recovery/DPO, classical baselines, A* layout, and guarded Qwen replay. It remains a 2:22 truth-labelled rough cut, not the planned 8–12 minute final film.
+- Regression check after recorder/edit changes: `D:\\IsaacLab\\.venv\\Scripts\\python.exe -m pytest tests -q -p no:cacheprovider` -> `22 passed in 2.24s`.
+
+### Current next steps
+
+1. Run and inspect the v8 QC report, including video/audio/subtitle streams, black-frame detection, silence intervals and representative physical/training/final frames.
+2. Commit and push source, documentation, and reproducibility-script changes only; generated artifacts remain ignored.
+3. The remaining substantive blocker is obstacle-aware, long-horizon H1 locomotion. Do not represent the two-decision bridge as solved navigation; final IID/OOD and long-horizon physical evaluation still await that controller.

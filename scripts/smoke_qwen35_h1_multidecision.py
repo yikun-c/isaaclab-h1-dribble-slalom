@@ -16,13 +16,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-# On Windows, visible Isaac/recorder extensions can load HDF5 before Python's
-# normal dependency path is resolved. Preloading h5py matches the previously
-# successful recorder path and avoids the h5py._errors DLL startup failure.
-import h5py  # noqa: F401
-
-
-SENSOR_DLL_DIRECTORY_HANDLE = None
+SENSOR_DLL_DIRECTORY_HANDLES = []
 RUN_PROGRESS: dict[str, object] = {}
 
 
@@ -30,13 +24,14 @@ def preload_windows_rtx_sensor_dlls() -> None:
     """Make Isaac's optional RGB sensor DLL search path explicit on Windows."""
     if os.name != "nt":
         return
-    directory = Path(r"D:\IsaacLab\.venv\Lib\site-packages\isaacsim\kit\dev\libs\sensors\generic_model_output\bin")
-    if not directory.is_dir():
-        return
-    global SENSOR_DLL_DIRECTORY_HANDLE
-    # Retain the directory handle for process lifetime. Do not manually load
-    # HDF5 here: h5py has already selected its compatible copy.
-    SENSOR_DLL_DIRECTORY_HANDLE = os.add_dll_directory(str(directory))
+    directories = (
+        Path(r"D:\IsaacLab\.venv\Library\bin"),
+        Path(r"D:\IsaacLab\.venv\Lib\site-packages\isaacsim\kit\dev\libs\sensors\generic_model_output\bin"),
+    )
+    available = [path for path in directories if path.is_dir()]
+    global SENSOR_DLL_DIRECTORY_HANDLES
+    SENSOR_DLL_DIRECTORY_HANDLES = [os.add_dll_directory(str(path)) for path in available]
+    os.environ["PATH"] = os.pathsep.join(str(path) for path in available) + os.pathsep + os.environ["PATH"]
 
 
 preload_windows_rtx_sensor_dlls()
@@ -62,6 +57,7 @@ parser.add_argument("--model-dir", type=Path, default=PROJECT_ROOT / "models/qwe
 parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "artifacts/h1/qwen35_h1_multidecision_smoke_v2.json")
 parser.add_argument("--video-output", type=Path, help="Optional versioned visible-D3D12 recording path.")
 parser.add_argument("--capture-every-ticks", type=int, default=2)
+parser.add_argument("--capture-warmup-ticks", type=int, default=30, help="Skip early noisy RTX accumulation frames after physics starts.")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if args.video_output:
@@ -208,8 +204,8 @@ def main() -> None:
         events: list[dict] = []
 
         if args.video_output:
-            if args.capture_every_ticks <= 0:
-                raise ValueError("capture-every-ticks must be positive")
+            if args.capture_every_ticks <= 0 or args.capture_warmup_ticks < 0:
+                raise ValueError("capture timing values must be non-negative/positive")
             import cv2
             import numpy as np
             from PIL import Image, ImageDraw, ImageFont
@@ -223,7 +219,7 @@ def main() -> None:
             temporary_video = args.video_output.with_suffix(".raw.mp4")
             # Do not write black Hydra warm-up buffers to an otherwise valid MP4.
             for _ in range(60):
-                env.render(recompute=True)
+                env.sim.render()
 
         def apply_velocity(target_values: tuple[float, float, float]):
             nonlocal observations, writer, recorded_frames, simulation_ticks
@@ -237,8 +233,12 @@ def main() -> None:
             if not torch.isfinite(env.scene["robot"].data.root_pos_w).all():
                 raise RuntimeError("non-finite H1 root state")
             simulation_ticks += 1
-            if args.video_output and (recorded_frames == 0 or simulation_ticks % args.capture_every_ticks == 0):
-                rgb = env.render(recompute=True)
+            if args.video_output and simulation_ticks > args.capture_warmup_ticks and simulation_ticks % args.capture_every_ticks == 0:
+                root = env.scene["robot"].data.root_pos_w[0]
+                root_x, root_y = float(root[0].item()), float(root[1].item())
+                env.sim.set_camera_view(eye=(root_x - 5.2, root_y - 7.6, 6.2), target=(root_x + 3.2, root_y + 3.2, 0.75))
+                env.sim.render()
+                rgb = env.render(recompute=False)
                 if rgb is not None and rgb.size:
                     image = Image.fromarray(rgb)
                     if float(np.asarray(image).mean()) >= 8.0:
@@ -246,7 +246,7 @@ def main() -> None:
                             image = image.resize((1280, 720), Image.Resampling.LANCZOS)
                         draw = ImageDraw.Draw(image, "RGBA")
                         draw.rectangle((0, 0, 1280, 94), fill=(17, 23, 30, 225))
-                        draw.text((20, 9), "实体迷宫 · Qwen3.5 → H1 三决策桥接", font=title_font, fill=(246, 248, 250, 255))
+                        draw.text((20, 9), f"实体迷宫 · Qwen3.5 → H1 {args.decisions}决策桥接", font=title_font, fill=(246, 248, 250, 255))
                         draw.text((20, 44), f"决策 {capture_context['decision']}  提议 {capture_context['proposed']}  执行 {capture_context['executed']}", font=body_font, fill=(165, 219, 235, 255))
                         guard_text = capture_context["guard"] or "无守卫覆盖（物理宏动作仍需阈值完成）"
                         draw.text((20, 68), f"{guard_text}  |  开发 smoke，非完整迷宫成功", font=body_font, fill=(248, 181, 72, 255))

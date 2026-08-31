@@ -8,10 +8,10 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-VIDEO = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v3.mp4"
-VOICE_MANIFEST = PROJECT_ROOT / "artifacts/audio/evidence_cut_v2/manifest.json"
-OUTPUT = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v5_voiceover.mp4"
-METADATA = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v5_voiceover.json"
+VIDEO = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v4.mp4"
+VOICE_MANIFEST = PROJECT_ROOT / "artifacts/audio/evidence_cut_v3/manifest.json"
+OUTPUT = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v8_voiceover.mp4"
+METADATA = PROJECT_ROOT / "artifacts/video/llm_h1_maze_evidence_cut_v8_voiceover.json"
 
 
 def main() -> None:
