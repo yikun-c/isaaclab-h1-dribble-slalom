@@ -5,7 +5,7 @@
 - Source commit: `a6f6b2248368e6823f8ffab033746532181012d0`
 - Branch: `feature/llm-maze-agent`
 - Current phase: bounded physical H1 bridge and narrated evidence cut complete; long-horizon locomotion and final evaluation remain
-- Current completion: 62% (deterministic core, Qwen study, physical walls/rays, short camera bridge, and rough cut verified; no accepted long-horizon H1 navigation, sealed final suite, or 8–12 minute final film)
+- Current completion: 66% (deterministic core, Qwen study, physical walls/rays, short camera bridge, and a 30-macro physical controller gate verified; no accepted completed H1 maze, sealed final suite, or 8–12 minute final film)
 - Status updated: 2026-08-31 CST
 
 ## Initial checkpoint (historical)
@@ -318,3 +318,11 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 
 - Local source commit `ba5cedeb76a1044de7759b67449be8756d4e4d22` contains the camera-runtime repair, camera-aware bridge scripts, v8 narration/subtitle sources, QC update, README, and this status update. Generated media and training artifacts remain Git-ignored.
 - Push to `origin/feature/llm-maze-agent` was attempted after local verification but the HTTPS connection was reset. The local worktree is clean; the last confirmed remote SHA remains `7c2555965f81436f6833d38635cac6998e9d2d76`. Recovery is simply `git push origin feature/llm-maze-agent` when GitHub connectivity is available; do not regenerate or delete any artifact.
+
+### Long-horizon pose-feedback controller gate — 2026-08-31
+
+- Diagnosis: the original macro executor held one constant velocity command for each cell/turn. Its continuous 3.6m-cell, 30-decision physical gate previously terminated in macro 13 after accumulated drift. The failure was a low-level execution issue, not a hidden-map or Qwen parsing problem.
+- `src\\maze_agent\\h1_bridge.py` now provides a bounded pose-feedback adapter. For forward moves it converts the current physical root-to-cell-center error from Isaac world coordinates into the H1 base frame and limits forward/lateral/yaw commands. For turns it uses walking turns (the published policy does not turn reliably from a standstill) with a minimum angular rate until the configured yaw threshold is actually crossed. This consumes only measured root pose and the current requested cell, not future maze layout; it is a controller around the frozen official checkpoint, **not** a newly trained obstacle-avoidance policy.
+- Pure regression after the change: `D:\\IsaacLab\\.venv\\Scripts\\python.exe -m pytest tests -q -p no:cacheprovider` -> `23 passed in 1.94s`.
+- Physical evidence, all one H1 in the same 100-wall 3.6m-cell seed-2026 maze with the same Qwen3.5+local-memory-guard interface: `qwen35_h1_guard_pose_feedback_cell36_dev5_v2.json` completed `5/5`; `...dev10_v1.json` completed `10/10`; first `...dev30_v1.json` reached `24/30` then missed the yaw threshold by about `0.04rad` after 1,100 ticks, with no fall; revised minimum-turn-rate `...dev30_v2.json` completed `30/30`, no physical macro failure, minimum root height `1.0208m`, and maximum logged forward cross-track residual `0.479m`.
+- The 30-step run did not yet reach the semantic completion condition (logical state `(4,2)`, checkpoint/exit not complete); CPU A* for this same seed has a 129-action shortest semantic route. The guarded learned planner can use more actions than that, so the next bounded test is a one-run 180-decision development cap that stops naturally on `STOP`/semantic success or writes its exact first physical failure. It remains development-only, not the sealed final suite.

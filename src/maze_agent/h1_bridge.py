@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from .core import Action, Heading
 
@@ -47,3 +48,57 @@ def velocity_for_grid_action(
         Action.STOP: MacroVelocity(0.0, 0.0, 0.0),
     }
     return mapping[action]
+
+
+def wrapped_angle(error_rad: float) -> float:
+    """Normalize an angular error into [-pi, pi)."""
+    return (error_rad + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def pose_feedback_velocity(
+    *,
+    target_xy: tuple[float, float],
+    target_yaw: float,
+    current_xy: tuple[float, float],
+    current_yaw: float,
+    max_forward_mps: float = 0.30,
+    max_lateral_mps: float = 0.10,
+    max_yaw_rps: float = 0.55,
+) -> MacroVelocity:
+    """Return a bounded base-frame velocity towards one physical cell center.
+
+    This is a feedback adapter around the frozen official velocity policy, not
+    a learned obstacle-avoidance policy.  It consumes only measured base pose
+    and the current macro target, so it cannot reveal future maze topology.
+    """
+    if min(max_forward_mps, max_lateral_mps, max_yaw_rps) <= 0.0:
+        raise ValueError("feedback velocity limits must be positive")
+    dx = target_xy[0] - current_xy[0]
+    dy = target_xy[1] - current_xy[1]
+    # World-to-body rotation: H1 receives base-frame velocity commands, while
+    # maze cells and robot root state are in Isaac world coordinates.
+    forward_error = dx * math.cos(current_yaw) + dy * math.sin(current_yaw)
+    lateral_error = -dx * math.sin(current_yaw) + dy * math.cos(current_yaw)
+    yaw_error = wrapped_angle(target_yaw - current_yaw)
+    return MacroVelocity(
+        linear_x_mps=max(-max_forward_mps, min(max_forward_mps, 0.55 * forward_error)),
+        linear_y_mps=max(-max_lateral_mps, min(max_lateral_mps, 0.45 * lateral_error)),
+        angular_z_rps=max(-max_yaw_rps, min(max_yaw_rps, 1.10 * yaw_error)),
+    )
+
+
+def turn_feedback_velocity(
+    *,
+    current_yaw: float,
+    target_yaw: float,
+    walking_forward_mps: float = 0.105,
+    min_yaw_rps: float = 0.30,
+    max_yaw_rps: float = 0.55,
+) -> MacroVelocity:
+    """Bounded walking turn for the published H1 policy's turn behavior."""
+    if walking_forward_mps <= 0.0 or min_yaw_rps <= 0.0 or max_yaw_rps < min_yaw_rps:
+        raise ValueError("turn feedback limits must be positive")
+    yaw_error = wrapped_angle(target_yaw - current_yaw)
+    requested_magnitude = min(max_yaw_rps, max(min_yaw_rps, 1.10 * abs(yaw_error)))
+    yaw_rate = math.copysign(requested_magnitude, yaw_error) if yaw_error else 0.0
+    return MacroVelocity(walking_forward_mps, 0.0, yaw_rate)

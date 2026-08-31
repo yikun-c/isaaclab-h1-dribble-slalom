@@ -50,6 +50,7 @@ parser.add_argument("--locomotion-profile", choices=("rough", "flat"), default="
 parser.add_argument("--decisions", type=int, default=3)
 parser.add_argument("--max-ticks-per-macro", type=int, default=1100)
 parser.add_argument("--forward-settle-distance", type=float, default=1.6, help="Metres between short stand-recovery intervals during a long forward macro.")
+parser.add_argument("--macro-controller", choices=("fixed", "pose-feedback"), default="fixed", help="Use fixed velocity primitives or bounded root-pose feedback around the official policy.")
 parser.add_argument("--execution-guard", action="store_true", help="Use the labelled local-memory execution guard.")
 parser.add_argument("--guard-revisit-threshold", type=int, default=2)
 parser.add_argument("--adapter-dir", type=Path, default=PROJECT_ROOT / "runs/qwen35_sft/2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1/adapter")
@@ -123,9 +124,11 @@ def main() -> None:
         build_task,
         decision_event,
         guard_action,
+        pose_feedback_velocity,
         parse_planner_response,
         sense_physical_maze,
         step,
+        turn_feedback_velocity,
         velocity_for_grid_action,
     )
     from maze_agent.core import reset
@@ -303,12 +306,28 @@ def main() -> None:
                 if target_forward <= 0.0:
                     raise RuntimeError("physical target is behind the requested macro direction")
                 target_values = velocity_for_grid_action(decision.action).as_tuple()
+                last_velocity_target = target_values
+                max_lateral_command = 0.0
+                max_yaw_command = 0.0
                 progress = 0.0
                 cross_track = 0.0
                 next_settle_distance = args.forward_settle_distance
                 recovery_intervals = 0
                 for _ in range(args.max_ticks_per_macro):
-                    apply_velocity(target_values)
+                    if args.macro_controller == "pose-feedback" and decision.action is Action.MOVE_FORWARD:
+                        root_before_command = env.scene["robot"].data.root_pos_w[0]
+                        feedback = pose_feedback_velocity(
+                            target_xy=target_xy,
+                            target_yaw=world_yaw,
+                            current_xy=(float(root_before_command[0].item()), float(root_before_command[1].item())),
+                            current_yaw=float(env.scene["robot"].data.heading_w[0].item()),
+                        )
+                        last_velocity_target = feedback.as_tuple()
+                    else:
+                        last_velocity_target = target_values
+                    max_lateral_command = max(max_lateral_command, abs(last_velocity_target[1]))
+                    max_yaw_command = max(max_yaw_command, abs(last_velocity_target[2]))
+                    apply_velocity(last_velocity_target)
                     macro_ticks += 1
                     current = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
                     moved_x, moved_y = current[0] - start_x, current[1] - start_y
@@ -331,21 +350,36 @@ def main() -> None:
                     "target_root_xy": target_xy,
                     "stand_recovery_intervals": recovery_intervals,
                     "expected_world_yaw": world_yaw,
+                    "macro_controller": args.macro_controller,
+                    "last_velocity_target": last_velocity_target,
+                    "max_lateral_command_mps": max_lateral_command,
+                    "max_yaw_command_rps": max_yaw_command,
                 }
             else:
                 logical_after_turn = step(task, state, decision.action)
                 target_yaw = GRID_HEADING_WORLD_YAW[logical_after_turn.heading]
                 target_values = velocity_for_grid_action(decision.action).as_tuple()
+                last_velocity_target = target_values
                 yaw_error = float("inf")
                 for _ in range(args.max_ticks_per_macro):
-                    apply_velocity(target_values)
+                    if args.macro_controller == "pose-feedback":
+                        last_velocity_target = turn_feedback_velocity(
+                            current_yaw=float(env.scene["robot"].data.heading_w[0].item()), target_yaw=target_yaw
+                        ).as_tuple()
+                    apply_velocity(last_velocity_target)
                     macro_ticks += 1
                     current_yaw = float(env.scene["robot"].data.heading_w[0].item())
                     yaw_error = wrapped_angle(target_yaw - current_yaw)
                     if abs(yaw_error) <= 0.18:
                         physical_completed = True
                         break
-                macro_detail = {"criterion": "abs_yaw_error_rad<=0.18", "target_world_yaw": target_yaw, "yaw_error_rad": yaw_error}
+                macro_detail = {
+                    "criterion": "abs_yaw_error_rad<=0.18",
+                    "target_world_yaw": target_yaw,
+                    "yaw_error_rad": yaw_error,
+                    "macro_controller": args.macro_controller,
+                    "last_velocity_target": last_velocity_target,
+                }
             # Settle before the next planner observation and prove the macro's
             # completed state from physical feedback, not requested duration.
             for _ in range(12):
@@ -362,7 +396,7 @@ def main() -> None:
                 "ticks": macro_ticks,
                 "before_root_w": before_physical,
                 "after_root_w": env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist(),
-                "velocity_target": velocity_for_grid_action(decision.action).as_tuple(),
+                "nominal_velocity_target": velocity_for_grid_action(decision.action).as_tuple(),
                 **macro_detail,
             }
             events.append(event)
