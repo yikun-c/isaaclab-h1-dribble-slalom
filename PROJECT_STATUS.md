@@ -313,3 +313,8 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 1. Run and inspect the v8 QC report, including video/audio/subtitle streams, black-frame detection, silence intervals and representative physical/training/final frames.
 2. Commit and push source, documentation, and reproducibility-script changes only; generated artifacts remain ignored.
 3. The remaining substantive blocker is obstacle-aware, long-horizon H1 locomotion. Do not represent the two-decision bridge as solved navigation; final IID/OOD and long-horizon physical evaluation still await that controller.
+
+### Git synchronization checkpoint — 2026-08-31
+
+- Local source commit `ba5cedeb76a1044de7759b67449be8756d4e4d22` contains the camera-runtime repair, camera-aware bridge scripts, v8 narration/subtitle sources, QC update, README, and this status update. Generated media and training artifacts remain Git-ignored.
+- Push to `origin/feature/llm-maze-agent` was attempted after local verification but the HTTPS connection was reset. The local worktree is clean; the last confirmed remote SHA remains `7c2555965f81436f6833d38635cac6998e9d2d76`. Recovery is simply `git push origin feature/llm-maze-agent` when GitHub connectivity is available; do not regenerate or delete any artifact.
