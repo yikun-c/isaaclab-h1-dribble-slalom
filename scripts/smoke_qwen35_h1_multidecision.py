@@ -54,6 +54,8 @@ parser.add_argument("--macro-controller", choices=("fixed", "pose-feedback"), de
 parser.add_argument("--turn-tolerance-rad", type=float, default=0.26, help="Measured yaw residual allowed before pose-feedback forward control re-centres the next cell traversal.")
 parser.add_argument("--feedback-max-lateral-mps", type=float, default=0.10, help="Bounded body-frame lateral correction for pose-feedback traversal.")
 parser.add_argument("--cross-track-tolerance-m", type=float, default=0.90, help="Maximum physical lateral residual before advancing the logical maze state.")
+parser.add_argument("--heading-correction-gain", type=float, default=0.75, help="Forward-walking yaw correction gain toward the current cell centre.")
+parser.add_argument("--max-heading-offset-rad", type=float, default=0.22, help="Maximum feedback yaw offset while traversing one cell.")
 parser.add_argument("--execution-guard", action="store_true", help="Use the labelled local-memory execution guard.")
 parser.add_argument("--guard-revisit-threshold", type=int, default=2)
 parser.add_argument("--adapter-dir", type=Path, default=PROJECT_ROOT / "runs/qwen35_sft/2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1/adapter")
@@ -130,6 +132,7 @@ def main() -> None:
         pose_feedback_velocity,
         parse_planner_response,
         sense_physical_maze,
+        steered_target_yaw,
         step,
         turn_feedback_velocity,
         velocity_for_grid_action,
@@ -138,7 +141,7 @@ def main() -> None:
     from maze_agent.physical_maze import maze_wall_specs
     from maze_agent.sft import SYSTEM_PROMPT
 
-    if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2 or args.forward_settle_distance <= 0.0 or not 0.05 <= args.turn_tolerance_rad <= 0.50 or not 0.01 <= args.feedback_max_lateral_mps <= 0.30 or not 0.10 <= args.cross_track_tolerance_m < args.cell_size / 2.0:
+    if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2 or args.forward_settle_distance <= 0.0 or not 0.05 <= args.turn_tolerance_rad <= 0.50 or not 0.01 <= args.feedback_max_lateral_mps <= 0.30 or not 0.10 <= args.cross_track_tolerance_m < args.cell_size / 2.0 or args.heading_correction_gain < 0.0 or not 0.01 <= args.max_heading_offset_rad <= 0.60:
         raise ValueError("decision/macro budgets and cell-size must be positive")
     # The high-level task is seed-controlled; seed PhysX/PyTorch as well so a
     # controller comparison is not confounded by a new random locomotion reset.
@@ -324,14 +327,28 @@ def main() -> None:
                 for _ in range(args.max_ticks_per_macro):
                     if args.macro_controller == "pose-feedback":
                         root_before_command = env.scene["robot"].data.root_pos_w[0]
+                        current_xy = (float(root_before_command[0].item()), float(root_before_command[1].item()))
+                        current_yaw = float(env.scene["robot"].data.heading_w[0].item())
+                        feedback_yaw = (
+                            steered_target_yaw(
+                                target_xy=target_xy,
+                                current_xy=current_xy,
+                                current_yaw=current_yaw,
+                                nominal_yaw=GRID_HEADING_WORLD_YAW[state.heading],
+                                lateral_gain=args.heading_correction_gain,
+                                max_offset_rad=args.max_heading_offset_rad,
+                            )
+                            if decision.action is Action.MOVE_FORWARD
+                            else GRID_HEADING_WORLD_YAW[state.heading]
+                        )
                         feedback = pose_feedback_velocity(
                             target_xy=target_xy,
                             # BACKTRACK preserves the logical body heading and
                             # therefore needs a negative base-x command toward
                             # its target, not a hidden 180-degree reorientation.
-                            target_yaw=GRID_HEADING_WORLD_YAW[state.heading],
-                            current_xy=(float(root_before_command[0].item()), float(root_before_command[1].item())),
-                            current_yaw=float(env.scene["robot"].data.heading_w[0].item()),
+                            target_yaw=feedback_yaw,
+                            current_xy=current_xy,
+                            current_yaw=current_yaw,
                             max_lateral_mps=args.feedback_max_lateral_mps,
                         )
                         last_velocity_target = feedback.as_tuple()
@@ -367,6 +384,8 @@ def main() -> None:
                     "max_lateral_command_mps": max_lateral_command,
                     "configured_max_lateral_mps": args.feedback_max_lateral_mps,
                     "configured_cross_track_tolerance_m": args.cross_track_tolerance_m,
+                    "heading_correction_gain": args.heading_correction_gain,
+                    "max_heading_offset_rad": args.max_heading_offset_rad,
                     "max_yaw_command_rps": max_yaw_command,
                 }
             else:

@@ -87,6 +87,31 @@ def pose_feedback_velocity(
     )
 
 
+def steered_target_yaw(
+    *,
+    target_xy: tuple[float, float],
+    current_xy: tuple[float, float],
+    current_yaw: float,
+    nominal_yaw: float,
+    lateral_gain: float = 0.75,
+    max_offset_rad: float = 0.22,
+) -> float:
+    """Aim slightly toward a cell centre to recover lateral offset while walking.
+
+    This uses only the current macro target and measured base pose; it cannot
+    reveal wall topology or future cells to the planner.
+    """
+    if lateral_gain < 0.0 or not 0.0 < max_offset_rad < math.pi / 2.0:
+        raise ValueError("invalid heading-feedback gains")
+    dx = target_xy[0] - current_xy[0]
+    dy = target_xy[1] - current_xy[1]
+    forward_error = dx * math.cos(current_yaw) + dy * math.sin(current_yaw)
+    lateral_error = -dx * math.sin(current_yaw) + dy * math.cos(current_yaw)
+    offset = math.atan2(lateral_gain * lateral_error, max(0.40, abs(forward_error)))
+    offset = max(-max_offset_rad, min(max_offset_rad, offset))
+    return nominal_yaw + offset
+
+
 def turn_feedback_velocity(
     *,
     current_yaw: float,

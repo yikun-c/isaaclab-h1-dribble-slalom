@@ -10,7 +10,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from maze_agent import Action, Heading, TopologicalMemory, astar_plan, build_split_manifest, build_task, dfs_plan, guard_action, observe, oracle_next_action, pose_feedback_velocity, run_actions, sense_physical_maze, step, turn_feedback_velocity, velocity_for_grid_action
+from maze_agent import Action, Heading, TopologicalMemory, astar_plan, build_split_manifest, build_task, dfs_plan, guard_action, observe, oracle_next_action, pose_feedback_velocity, run_actions, sense_physical_maze, steered_target_yaw, step, turn_feedback_velocity, velocity_for_grid_action
 from maze_agent.core import reset
 from maze_agent.physical_maze import maze_wall_specs
 
@@ -133,6 +133,7 @@ def test_h1_pose_feedback_adapter_tracks_world_target_in_body_frame() -> None:
     backtrack = pose_feedback_velocity(target_xy=(-3.6, 0.0), target_yaw=0.0, current_xy=(0.0, 0.0), current_yaw=0.0)
     assert backtrack.linear_x_mps < 0.0
     assert backtrack.linear_y_mps == 0.0
+    assert steered_target_yaw(target_xy=(3.6, 1.0), current_xy=(0.0, 0.0), current_yaw=0.0, nominal_yaw=0.0) > 0.0
     turn = turn_feedback_velocity(current_yaw=0.0, target_yaw=math.pi / 2.0)
     assert turn.linear_x_mps > 0.0
     assert turn.angular_z_rps > 0.0
