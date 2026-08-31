@@ -53,6 +53,7 @@ class NodeMemory:
     known_dead_end: bool = False
     landmarks: set[str] = field(default_factory=set)
     parent_exit: str | None = None
+    observed_safe_exits: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -74,6 +75,10 @@ class TopologicalMemory:
         if state.position == task.exit:
             current.landmarks.add("exit")
         self.checkpoint_complete = self.checkpoint_complete or state.checkpoint_complete
+        local = observe(task, state)
+        for heading, is_open in ((state.heading, local.front_open), (state.heading.left(), local.left_open), (state.heading.right(), local.right_open), (state.heading.opposite(), local.rear_open)):
+            if is_open and task.layout.neighbor(state.position, heading) != task.forbidden:
+                current.observed_safe_exits.add(heading.value)
         exits = task.layout.accessible_neighbors(state.position)
         if len(exits) == 1 and state.position not in {task.start, task.exit, task.checkpoint}:
             current.known_dead_end = True

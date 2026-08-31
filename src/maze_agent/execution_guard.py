@@ -9,6 +9,7 @@ variant and callers must label it as such.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import deque
 
 from .core import Action, Heading, MazeState, MazeTask, observe
 from .protocol import TopologicalMemory, node_id
@@ -79,6 +80,30 @@ def _fallback_exploration_action(task: MazeTask, state: MazeState, memory: Topol
     return _toward_heading(state.heading, safe[0])
 
 
+def _frontier_recovery_action(task: MazeTask, state: MazeState, memory: TopologicalMemory) -> Action | None:
+    """Route only across executed transitions to the nearest observed frontier."""
+    current_id = node_id(state.position)
+    adjacency: dict[str, list[tuple[str, Heading]]] = {}
+    for origin, direction_raw, destination in memory.transitions:
+        direction = Heading(direction_raw)
+        adjacency.setdefault(origin, []).append((destination, direction))
+        adjacency.setdefault(destination, []).append((origin, direction.opposite()))
+    queue: deque[tuple[str, Heading | None]] = deque([(current_id, None)])
+    visited = {current_id}
+    while queue:
+        node, first_heading = queue.popleft()
+        record = memory.nodes[node]
+        unseen = record.observed_safe_exits - record.explored_exits
+        if unseen:
+            heading = sorted((Heading(value) for value in unseen), key=lambda item: item.value)[0]
+            return _toward_heading(state.heading, heading) if node == current_id else _toward_heading(state.heading, first_heading)
+        for destination, heading in adjacency.get(node, []):
+            if destination not in visited:
+                visited.add(destination)
+                queue.append((destination, heading if first_heading is None else first_heading))
+    return None
+
+
 def guard_action(
     task: MazeTask,
     state: MazeState,
@@ -96,11 +121,14 @@ def guard_action(
         proposed is Action.BACKTRACK and not local.rear_open
     )
     if proposed is Action.STOP:
-        return GuardedAction(_fallback_exploration_action(task, state, memory), True, "prevent_early_stop")
+        recovery = _frontier_recovery_action(task, state, memory)
+        return GuardedAction(recovery or _fallback_exploration_action(task, state, memory), True, "frontier_recovery" if recovery else "prevent_early_stop")
     current = memory.nodes.get(node_id(state.position))
     visits = current.visits if current is not None else 0
     if blocked:
-        return GuardedAction(_fallback_exploration_action(task, state, memory), True, "prevent_known_wall")
+        recovery = _frontier_recovery_action(task, state, memory)
+        return GuardedAction(recovery or _fallback_exploration_action(task, state, memory), True, "frontier_recovery" if recovery else "prevent_known_wall")
     if visits >= revisit_threshold:
-        return GuardedAction(_fallback_exploration_action(task, state, memory), True, "revisit_exploration")
+        recovery = _frontier_recovery_action(task, state, memory)
+        return GuardedAction(recovery or _fallback_exploration_action(task, state, memory), True, "frontier_recovery" if recovery else "revisit_exploration")
     return GuardedAction(proposed, False, None)

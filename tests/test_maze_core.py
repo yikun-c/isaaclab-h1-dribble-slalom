@@ -149,7 +149,7 @@ def test_local_memory_guard_prevents_wall_actions_and_marks_return_edge_executed
     # Seed 2026 starts with only east open; looking north would hit a known wall.
     state = step(task, state, Action.TURN_LEFT)
     guarded = guard_action(task, state, memory, Action.MOVE_FORWARD)
-    assert guarded.overridden and guarded.reason == "prevent_known_wall"
+    assert guarded.overridden and guarded.reason == "frontier_recovery"
     before_move = reset(task)
     after_move = step(task, before_move, Action.MOVE_FORWARD)
     memory.record_transition(task, before_move, Action.MOVE_FORWARD, after_move)
