@@ -318,6 +318,7 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 
 - Local source commit `ba5cedeb76a1044de7759b67449be8756d4e4d22` contains the camera-runtime repair, camera-aware bridge scripts, v8 narration/subtitle sources, QC update, README, and this status update. Generated media and training artifacts remain Git-ignored.
 - Push to `origin/feature/llm-maze-agent` was attempted after local verification but the HTTPS connection was reset. The local worktree is clean; the last confirmed remote SHA remains `7c2555965f81436f6833d38635cac6998e9d2d76`. Recovery is simply `git push origin feature/llm-maze-agent` when GitHub connectivity is available; do not regenerate or delete any artifact.
+- Recovery complete: GitHub connectivity returned. On 2026-08-31, `git push origin feature/llm-maze-agent` updated the remote from `7c2555965f81436f6833d38635cac6998e9d2d76` to `7603283cfe2a5756bff2ac3baf750bde293baee5`; local `HEAD` and `origin/feature/llm-maze-agent` were verified equal after the push.
 
 ### Long-horizon pose-feedback controller gate — 2026-08-31
 
