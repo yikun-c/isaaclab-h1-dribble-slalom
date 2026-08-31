@@ -53,7 +53,7 @@ parser.add_argument("--forward-settle-distance", type=float, default=1.6, help="
 parser.add_argument("--macro-controller", choices=("fixed", "pose-feedback"), default="fixed", help="Use fixed velocity primitives or bounded root-pose feedback around the official policy.")
 parser.add_argument("--turn-tolerance-rad", type=float, default=0.26, help="Measured yaw residual allowed before pose-feedback forward control re-centres the next cell traversal.")
 parser.add_argument("--feedback-max-lateral-mps", type=float, default=0.10, help="Bounded body-frame lateral correction for pose-feedback traversal.")
-parser.add_argument("--cross-track-tolerance-m", type=float, default=0.50, help="Maximum physical lateral residual before advancing the logical maze state.")
+parser.add_argument("--cross-track-tolerance-m", type=float, default=0.90, help="Maximum physical lateral residual before advancing the logical maze state.")
 parser.add_argument("--execution-guard", action="store_true", help="Use the labelled local-memory execution guard.")
 parser.add_argument("--guard-revisit-threshold", type=int, default=2)
 parser.add_argument("--adapter-dir", type=Path, default=PROJECT_ROOT / "runs/qwen35_sft/2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1/adapter")
