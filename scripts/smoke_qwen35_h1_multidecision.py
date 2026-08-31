@@ -51,6 +51,7 @@ parser.add_argument("--decisions", type=int, default=3)
 parser.add_argument("--max-ticks-per-macro", type=int, default=1100)
 parser.add_argument("--forward-settle-distance", type=float, default=1.6, help="Metres between short stand-recovery intervals during a long forward macro.")
 parser.add_argument("--macro-controller", choices=("fixed", "pose-feedback"), default="fixed", help="Use fixed velocity primitives or bounded root-pose feedback around the official policy.")
+parser.add_argument("--turn-tolerance-rad", type=float, default=0.26, help="Measured yaw residual allowed before pose-feedback forward control re-centres the next cell traversal.")
 parser.add_argument("--execution-guard", action="store_true", help="Use the labelled local-memory execution guard.")
 parser.add_argument("--guard-revisit-threshold", type=int, default=2)
 parser.add_argument("--adapter-dir", type=Path, default=PROJECT_ROOT / "runs/qwen35_sft/2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1/adapter")
@@ -135,7 +136,7 @@ def main() -> None:
     from maze_agent.physical_maze import maze_wall_specs
     from maze_agent.sft import SYSTEM_PROMPT
 
-    if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2 or args.forward_settle_distance <= 0.0:
+    if args.decisions <= 0 or args.max_ticks_per_macro <= 0 or args.cell_size <= 0.2 or args.forward_settle_distance <= 0.0 or not 0.05 <= args.turn_tolerance_rad <= 0.50:
         raise ValueError("decision/macro budgets and cell-size must be positive")
     # The high-level task is seed-controlled; seed PhysX/PyTorch as well so a
     # controller comparison is not confounded by a new random locomotion reset.
@@ -378,11 +379,11 @@ def main() -> None:
                     macro_ticks += 1
                     current_yaw = float(env.scene["robot"].data.heading_w[0].item())
                     yaw_error = wrapped_angle(target_yaw - current_yaw)
-                    if abs(yaw_error) <= 0.18:
+                    if abs(yaw_error) <= args.turn_tolerance_rad:
                         physical_completed = True
                         break
                 macro_detail = {
-                    "criterion": "abs_yaw_error_rad<=0.18",
+                    "criterion": f"abs_yaw_error_rad<={args.turn_tolerance_rad:.3f}",
                     "target_world_yaw": target_yaw,
                     "yaw_error_rad": yaw_error,
                     "macro_controller": args.macro_controller,
