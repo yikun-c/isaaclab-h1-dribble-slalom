@@ -52,6 +52,8 @@ parser.add_argument("--max-ticks-per-macro", type=int, default=1100)
 parser.add_argument("--forward-settle-distance", type=float, default=1.6, help="Metres between short stand-recovery intervals during a long forward macro.")
 parser.add_argument("--macro-controller", choices=("fixed", "pose-feedback"), default="fixed", help="Use fixed velocity primitives or bounded root-pose feedback around the official policy.")
 parser.add_argument("--turn-tolerance-rad", type=float, default=0.26, help="Measured yaw residual allowed before pose-feedback forward control re-centres the next cell traversal.")
+parser.add_argument("--turn-recovery-settle-ticks", type=int, default=0, help="Optional zero-command stabilization ticks before one failed-turn retry.")
+parser.add_argument("--turn-recovery-max-ticks", type=int, default=0, help="Optional extra bounded ticks for the failed-turn retry; zero disables recovery.")
 parser.add_argument("--feedback-max-lateral-mps", type=float, default=0.10, help="Bounded body-frame lateral correction for pose-feedback traversal.")
 parser.add_argument("--cross-track-tolerance-m", type=float, default=0.90, help="Maximum physical lateral residual before advancing the logical maze state.")
 parser.add_argument("--heading-correction-gain", type=float, default=0.75, help="Forward-walking yaw correction gain toward the current cell centre.")
@@ -67,6 +69,8 @@ parser.add_argument("--capture-every-ticks", type=int, default=2)
 parser.add_argument("--capture-warmup-ticks", type=int, default=30, help="Skip early noisy RTX accumulation frames after physics starts.")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+if args.turn_recovery_settle_ticks < 0 or args.turn_recovery_max_ticks < 0:
+    raise ValueError("turn recovery tick counts must be non-negative")
 if args.video_output:
     args.enable_cameras = True
 app_launcher = AppLauncher(args)
@@ -419,6 +423,8 @@ def main() -> None:
                 yaw_error = wrapped_angle(target_yaw - before_heading_w)
                 initial_yaw_error = yaw_error
                 best_abs_yaw_error = abs(yaw_error)
+                recovery_attempted = False
+                recovery_ticks = 0
                 for _ in range(args.max_ticks_per_macro):
                     if args.macro_controller == "pose-feedback":
                         last_velocity_target = turn_feedback_velocity(
@@ -432,6 +438,25 @@ def main() -> None:
                     if abs(yaw_error) <= args.turn_tolerance_rad:
                         physical_completed = True
                         break
+                if not physical_completed and args.turn_recovery_max_ticks:
+                    recovery_attempted = True
+                    for _ in range(args.turn_recovery_settle_ticks):
+                        apply_velocity((0.0, 0.0, 0.0))
+                        macro_ticks += 1
+                        recovery_ticks += 1
+                    for _ in range(args.turn_recovery_max_ticks):
+                        last_velocity_target = turn_feedback_velocity(
+                            current_yaw=float(env.scene["robot"].data.heading_w[0].item()), target_yaw=target_yaw
+                        ).as_tuple()
+                        apply_velocity(last_velocity_target)
+                        macro_ticks += 1
+                        recovery_ticks += 1
+                        current_yaw = float(env.scene["robot"].data.heading_w[0].item())
+                        yaw_error = wrapped_angle(target_yaw - current_yaw)
+                        best_abs_yaw_error = min(best_abs_yaw_error, abs(yaw_error))
+                        if abs(yaw_error) <= args.turn_tolerance_rad:
+                            physical_completed = True
+                            break
                 macro_detail = {
                     "criterion": f"abs_yaw_error_rad<={args.turn_tolerance_rad:.3f}",
                     "target_world_yaw": target_yaw,
@@ -440,6 +465,10 @@ def main() -> None:
                     "initial_yaw_error_rad": initial_yaw_error,
                     "yaw_error_rad": yaw_error,
                     "best_abs_yaw_error_rad": best_abs_yaw_error,
+                    "turn_recovery_attempted": recovery_attempted,
+                    "turn_recovery_ticks": recovery_ticks,
+                    "configured_turn_recovery_settle_ticks": args.turn_recovery_settle_ticks,
+                    "configured_turn_recovery_max_ticks": args.turn_recovery_max_ticks,
                     "macro_controller": args.macro_controller,
                     "last_velocity_target": last_velocity_target,
                 }
