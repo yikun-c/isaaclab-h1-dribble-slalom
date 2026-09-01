@@ -318,6 +318,7 @@ def main() -> None:
                     decision = replace(proposed, action=guarded.action, fallback_reason=f"memory_guard:{guarded.reason}")
             capture_context.update({"decision": decision_index + 1, "proposed": proposed.action.value, "executed": decision.action.value, "guard": guard_reason})
             before_physical = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
+            before_heading_w = float(env.scene["robot"].data.heading_w[0].item())
             macro_ticks = 0
             physical_completed = False
             macro_detail: dict[str, object] = {}
@@ -415,7 +416,9 @@ def main() -> None:
                 target_yaw = GRID_HEADING_WORLD_YAW[logical_after_turn.heading]
                 target_values = velocity_for_grid_action(decision.action).as_tuple()
                 last_velocity_target = target_values
-                yaw_error = float("inf")
+                yaw_error = wrapped_angle(target_yaw - before_heading_w)
+                initial_yaw_error = yaw_error
+                best_abs_yaw_error = abs(yaw_error)
                 for _ in range(args.max_ticks_per_macro):
                     if args.macro_controller == "pose-feedback":
                         last_velocity_target = turn_feedback_velocity(
@@ -425,13 +428,18 @@ def main() -> None:
                     macro_ticks += 1
                     current_yaw = float(env.scene["robot"].data.heading_w[0].item())
                     yaw_error = wrapped_angle(target_yaw - current_yaw)
+                    best_abs_yaw_error = min(best_abs_yaw_error, abs(yaw_error))
                     if abs(yaw_error) <= args.turn_tolerance_rad:
                         physical_completed = True
                         break
                 macro_detail = {
                     "criterion": f"abs_yaw_error_rad<={args.turn_tolerance_rad:.3f}",
                     "target_world_yaw": target_yaw,
+                    "before_heading_w": before_heading_w,
+                    "after_heading_w": current_yaw,
+                    "initial_yaw_error_rad": initial_yaw_error,
                     "yaw_error_rad": yaw_error,
+                    "best_abs_yaw_error_rad": best_abs_yaw_error,
                     "macro_controller": args.macro_controller,
                     "last_velocity_target": last_velocity_target,
                 }
@@ -483,7 +491,11 @@ def main() -> None:
             if not physical_completed:
                 break
         report = {
-            "result": "QWEN35_H1_MULTIDECISION_SMOKE_OK",
+            "result": (
+                "QWEN35_H1_MULTIDECISION_SMOKE_OK"
+                if all(event["physical_macro"]["completed"] for event in events)
+                else "QWEN35_H1_MULTIDECISION_PHYSICAL_MACRO_INCOMPLETE"
+            ),
             "truth_label": "development-only bounded multi-decision Qwen3.5-to-H1 macro bridge; not a sealed or completed maze-navigation evaluation",
             "maze_seed": args.seed,
             "requested_decisions": args.decisions,
