@@ -104,6 +104,43 @@ def _frontier_recovery_action(task: MazeTask, state: MazeState, memory: Topologi
     return None
 
 
+def _known_landmark_recovery_action(
+    state: MazeState, memory: TopologicalMemory, landmark: str
+) -> Action | None:
+    """Return the first executed edge on a route to an already observed landmark.
+
+    This intentionally searches only the transition graph built by
+    ``record_transition``.  In particular, it does not use ``task.exit`` as a
+    coordinate or inspect the maze layout: the exit becomes routable only after
+    the robot has physically visited and locally labelled it.
+    """
+    targets = {
+        known_id
+        for known_id, record in memory.nodes.items()
+        if landmark in record.landmarks
+    }
+    current_id = node_id(state.position)
+    if not targets or current_id in targets:
+        return None
+    adjacency: dict[str, list[tuple[str, Heading]]] = {}
+    for origin, direction_raw, destination in memory.transitions:
+        direction = Heading(direction_raw)
+        adjacency.setdefault(origin, []).append((destination, direction))
+        adjacency.setdefault(destination, []).append((origin, direction.opposite()))
+    queue: deque[tuple[str, Heading | None]] = deque([(current_id, None)])
+    visited = {current_id}
+    while queue:
+        node, first_heading = queue.popleft()
+        if node in targets:
+            assert first_heading is not None
+            return _toward_heading(state.heading, first_heading)
+        for destination, heading in adjacency.get(node, []):
+            if destination not in visited:
+                visited.add(destination)
+                queue.append((destination, heading if first_heading is None else first_heading))
+    return None
+
+
 def guard_action(
     task: MazeTask,
     state: MazeState,
@@ -116,6 +153,14 @@ def guard_action(
         raise ValueError("revisit_threshold must be positive")
     if state.position == task.exit and state.checkpoint_complete:
         return GuardedAction(Action.STOP, proposed is not Action.STOP, "goal_reached")
+    if state.checkpoint_complete:
+        # The exit may have been seen before the semantic checkpoint.  Once the
+        # checkpoint is reached, prefer the shortest route across *executed*
+        # edges rather than spending the remaining budget on unrelated frontier
+        # discovery.  This is still a local-memory guard, not global planning.
+        exit_route = _known_landmark_recovery_action(state, memory, "exit")
+        if exit_route is not None and exit_route is not proposed:
+            return GuardedAction(exit_route, True, "route_known_exit_after_checkpoint")
     local = observe(task, state)
     blocked = (proposed is Action.MOVE_FORWARD and not local.front_open) or (
         proposed is Action.BACKTRACK and not local.rear_open

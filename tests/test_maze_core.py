@@ -10,7 +10,8 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from maze_agent import Action, Heading, TopologicalMemory, astar_plan, build_split_manifest, build_task, dfs_plan, guard_action, observe, oracle_next_action, pose_feedback_velocity, run_actions, sense_physical_maze, steered_target_yaw, step, turn_feedback_velocity, velocity_for_grid_action
+from maze_agent import Action, Heading, MazeState, TopologicalMemory, astar_plan, build_split_manifest, build_task, dfs_plan, guard_action, observe, oracle_next_action, pose_feedback_velocity, run_actions, sense_physical_maze, steered_target_yaw, step, turn_feedback_velocity, velocity_for_grid_action
+from maze_agent.baselines import heading_between
 from maze_agent.core import reset
 from maze_agent.physical_maze import maze_wall_specs
 
@@ -157,6 +158,28 @@ def test_local_memory_guard_prevents_wall_actions_and_marks_return_edge_executed
     summary = memory.compact_summary(after_move)
     assert Heading.WEST.value in summary["visited_exits"]
     assert memory.nodes["N1_0"].parent_exit == Heading.WEST.value
+
+
+def test_guard_routes_to_previously_observed_exit_only_after_checkpoint() -> None:
+    task = build_task(9, 9, 2026)
+    route = task.layout.shortest_path(task.start, task.exit, (task.forbidden,))
+    assert route is not None and len(route) > 1
+    memory = TopologicalMemory()
+    for origin, destination in zip(route, route[1:]):
+        heading = heading_between(origin, destination)
+        before = MazeState(position=origin, heading=heading)
+        after = MazeState(position=destination, heading=heading)
+        memory.record_observation(task, before)
+        memory.record_transition(task, before, Action.MOVE_FORWARD, after)
+    memory.record_observation(task, MazeState(position=task.exit, heading=Heading.EAST))
+    checkpoint_ready = MazeState(position=task.start, heading=Heading.EAST, checkpoint_complete=True)
+    guarded = guard_action(task, checkpoint_ready, memory, Action.TURN_LEFT)
+    expected_heading = heading_between(route[0], route[1])
+    expected = Action.MOVE_FORWARD if expected_heading is Heading.EAST else (
+        Action.TURN_LEFT if expected_heading is Heading.NORTH else Action.TURN_RIGHT
+    )
+    assert guarded.action is expected
+    assert guarded.overridden and guarded.reason == "route_known_exit_after_checkpoint"
 
 
 def test_physical_wall_ray_ranges_match_each_cell_local_topology() -> None:

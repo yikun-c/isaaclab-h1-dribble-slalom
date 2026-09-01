@@ -4,9 +4,9 @@
 - Source project: `D:\ai_dribble_agent_video`
 - Source commit: `a6f6b2248368e6823f8ffab033746532181012d0`
 - Branch: `feature/llm-maze-agent`
-- Current phase: bounded physical H1 bridge and narrated evidence cut complete; long-horizon locomotion and final evaluation remain
-- Current completion: 66% (deterministic core, Qwen study, physical walls/rays, short camera bridge, and a 30-macro physical controller gate verified; no accepted completed H1 maze, sealed final suite, or 8–12 minute final film)
-- Status updated: 2026-08-31 CST
+- Current phase: long-horizon physical controller is verified; live-Qwen semantic completion, sealed evaluation, and final film remain
+- Current completion: 72% (deterministic core, Qwen study, physical walls/rays, camera bridge, frozen-trace physical completion, and 180-macro live control gate verified; no accepted live-Qwen completed maze, sealed final suite, or 8–12 minute final film)
+- Status updated: 2026-09-01 CST
 
 ## Initial checkpoint (historical)
 
@@ -369,3 +369,19 @@ Read `PROJECT_PLAN.md` completely, then begin P0. Update this file before and af
 - A longer live run `qwen35_h1_live_frontier_guard_seed657_cell48_dev180_v1.json` completed 131 physical macros (96 frontier-guard overrides, zero falls/collisions, minimum root height `0.99169m`, maximum cross-track `0.589m`) before a final `TURN_LEFT` missed the yaw completion threshold and was rejected. It did not revisit the old root two-node loop and discovered 57 observed nodes, but checkpoint remained incomplete. This is an accepted long-horizon **failure record**, proving the remaining issue is late turn reliability / exploration efficiency rather than initial physical bridge viability.
 - Turn control ablation: slowing the last angular approach to `0.055m/s` failed by macro 17 (yaw residual `0.323rad` after 1,500 ticks), so it is retained as a negative control. Restoring walking speed while retaining full yaw authority (`0.55rad/s`) passed the same seed-657 4.8m-cell 40-macro gate: `40/40`, zero physical failures, minimum root height `0.99954m`, max cross-track `0.411m`, and max turn duration 568 ticks. This is the next candidate for a long-horizon rerun; it is not yet a full completion claim.
 - Full-yaw long-horizon update: `qwen35_h1_live_frontier_guard_seed657_cell48_fullturn_dev180_v1.json` completed all `180/180` real H1 macros with zero physical macro failures, minimum root height `0.99954m`, max cross-track `0.626m`, and 136 logged frontier overrides. This resolves the earlier late-turn rejection (the prior 180-step run stopped at macro 131). It did not complete the semantic task by its exploration budget: final logical `(5,5)`, checkpoint incomplete, 73 observed nodes. Thus live high-level exploration efficiency is now the remaining blocker; do not label this as success.
+
+### Checkpoint-return repair and current runtime boundary — 2026-09-01
+
+- The per-macro progress checkpoint for `qwen35_h1_live_frontier_guard_seed657_cell48_fullturn_dev300_v1` was recovered and inspected. It records 241 completed real H1 macros, zero recorded macro failure up to that point, and a real arrival at the blue checkpoint `(0,7)`; the next physical action turned the robot east. The matching Isaac/Python process is absent and no terminal result JSON exists, so this is an interrupted run with partial evidence only. It is explicitly not counted as semantic completion.
+- Diagnosis from that trace: before reaching the checkpoint, the robot had already physically observed and locally labelled the exit. The prior guard continued generic frontier recovery after checkpoint completion instead of returning along the executed transition graph to that known exit, wasting the remaining action budget.
+- `src\\maze_agent\\execution_guard.py` now adds `route_known_exit_after_checkpoint`. It searches only `TopologicalMemory.transitions` and an already locally recorded `"exit"` landmark; it does not access `task.exit` coordinates or unseen layout. When its computed first action differs from Qwen's proposal, the event is labelled `memory_guard:route_known_exit_after_checkpoint`; matching Qwen actions remain unmodified.
+- Regression: `D:\\IsaacLab\\.venv\\Scripts\\python.exe -m pytest tests -q` -> `24 passed in 4.15s`, including a route test that constructs memory exclusively from executed transition records. The intended next evidence is a new versioned CPU closed-loop development suite followed by one fresh 4.8m physical live-Qwen seed-657 run; no old artifact will be overwritten.
+- CPU re-evaluation was attempted with the same three development seeds, same LoRA adapter, same physical-ray boolean interface and only the new exit-route logic as a variable. It did not reach model inference: `safe_open` returned Windows `OSError 1455` during checkpoint loading. Live system inspection found 62.28GB committed against a 65.88GB limit and an unrelated active `D:\\ai_news_video\\tools\\tts_qwen.py` process holding 9.96GiB resident memory. GPU use was only 2.45GiB, so this is a RAM/commit-pressure boundary, not a GPU-memory or policy-quality result. That unrelated process was not terminated. Recovery is to let it finish or otherwise free equivalent RAM, then rerun the exact versioned evaluation command below.
+
+```powershell
+D:\\IsaacLab\\.venv\\Scripts\\python.exe scripts\\evaluate_qwen35_closed_loop.py `
+  --adapter-dir runs\\qwen35_sft\\2026-08-30_21-50-28_qwen3_5_2b_maze_memory_sft_dev200_v1\\adapter `
+  --episodes 3 --max-decisions 200 --execution-guard --guard-revisit-threshold 2 `
+  --physical-wall-rays `
+  --output artifacts\\maze\\eval_qwen35_closedloop_frontier_exitroute_guard_dev3_v1.json
+```
