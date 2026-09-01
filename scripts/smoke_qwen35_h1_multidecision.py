@@ -55,6 +55,7 @@ parser.add_argument("--turn-tolerance-rad", type=float, default=0.26, help="Meas
 parser.add_argument("--turn-recovery-settle-ticks", type=int, default=0, help="Optional zero-command stabilization ticks before one failed-turn retry.")
 parser.add_argument("--turn-recovery-max-ticks", type=int, default=0, help="Optional extra bounded ticks for the failed-turn retry; zero disables recovery.")
 parser.add_argument("--turn-recenter-max-ticks", type=int, default=0, help="Optional bounded pose-feedback ticks to re-center inside the current cell after a turn.")
+parser.add_argument("--turn-recenter-reorient-ticks", type=int, default=0, help="Optional bounded walking-turn ticks to restore the logical heading after center-seeking motion.")
 parser.add_argument("--turn-recenter-tolerance-m", type=float, default=0.90, help="Maximum planar error from the current cell center after a turn re-center.")
 parser.add_argument("--feedback-max-lateral-mps", type=float, default=0.10, help="Bounded body-frame lateral correction for pose-feedback traversal.")
 parser.add_argument("--cross-track-tolerance-m", type=float, default=0.90, help="Maximum physical lateral residual before advancing the logical maze state.")
@@ -71,7 +72,12 @@ parser.add_argument("--capture-every-ticks", type=int, default=2)
 parser.add_argument("--capture-warmup-ticks", type=int, default=30, help="Skip early noisy RTX accumulation frames after physics starts.")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
-if min(args.turn_recovery_settle_ticks, args.turn_recovery_max_ticks, args.turn_recenter_max_ticks) < 0:
+if min(
+    args.turn_recovery_settle_ticks,
+    args.turn_recovery_max_ticks,
+    args.turn_recenter_max_ticks,
+    args.turn_recenter_reorient_ticks,
+) < 0:
     raise ValueError("turn recovery/re-center tick counts must be non-negative")
 if args.turn_recenter_tolerance_m <= 0.0:
     raise ValueError("turn re-center tolerance must be positive")
@@ -207,6 +213,7 @@ def main() -> None:
             + args.turn_recovery_settle_ticks
             + args.turn_recovery_max_ticks
             + args.turn_recenter_max_ticks
+            + args.turn_recenter_reorient_ticks
             + 12
         )
         * 0.02
@@ -493,6 +500,7 @@ def main() -> None:
                 recenter_attempted = False
                 recenter_ticks = 0
                 recenter_error_m = None
+                recenter_reorient_ticks = 0
                 if physical_completed and args.turn_recenter_max_ticks:
                     recenter_target = (state.position[0] * args.cell_size, state.position[1] * args.cell_size)
                     root_before_recenter = env.scene["robot"].data.root_pos_w[0]
@@ -505,12 +513,19 @@ def main() -> None:
                             root_before_command = env.scene["robot"].data.root_pos_w[0]
                             current_xy = (float(root_before_command[0].item()), float(root_before_command[1].item()))
                             current_yaw = float(env.scene["robot"].data.heading_w[0].item())
+                            center_heading = math.atan2(
+                                recenter_target[1] - current_xy[1], recenter_target[0] - current_xy[0]
+                            )
                             last_velocity_target = pose_feedback_velocity(
                                 target_xy=recenter_target,
-                                target_yaw=target_yaw,
+                                # Side-stepping alone was unable to remove a
+                                # 1.2m in-cell offset.  Face the measured
+                                # centre direction while recovering, then
+                                # restore the logical heading below.
+                                target_yaw=center_heading,
                                 current_xy=current_xy,
                                 current_yaw=current_yaw,
-                                max_forward_mps=0.15,
+                                max_forward_mps=0.20,
                                 max_lateral_mps=args.feedback_max_lateral_mps,
                             ).as_tuple()
                             apply_velocity(last_velocity_target)
@@ -521,9 +536,21 @@ def main() -> None:
                                 (float(root_after_command[0].item()), float(root_after_command[1].item())), recenter_target
                             )
                             current_yaw = float(env.scene["robot"].data.heading_w[0].item())
-                            yaw_error = wrapped_angle(target_yaw - current_yaw)
-                            if recenter_error_m <= args.turn_recenter_tolerance_m and abs(yaw_error) <= args.turn_tolerance_rad:
+                            if recenter_error_m <= args.turn_recenter_tolerance_m:
                                 break
+                        if recenter_error_m is not None and recenter_error_m <= args.turn_recenter_tolerance_m:
+                            for _ in range(args.turn_recenter_reorient_ticks):
+                                current_yaw = float(env.scene["robot"].data.heading_w[0].item())
+                                last_velocity_target = turn_feedback_velocity(
+                                    current_yaw=current_yaw, target_yaw=target_yaw
+                                ).as_tuple()
+                                apply_velocity(last_velocity_target)
+                                macro_ticks += 1
+                                recenter_reorient_ticks += 1
+                                current_yaw = float(env.scene["robot"].data.heading_w[0].item())
+                                yaw_error = wrapped_angle(target_yaw - current_yaw)
+                                if abs(yaw_error) <= args.turn_tolerance_rad:
+                                    break
                         physical_completed = (
                             recenter_error_m is not None
                             and recenter_error_m <= args.turn_recenter_tolerance_m
@@ -543,8 +570,10 @@ def main() -> None:
                     "configured_turn_recovery_max_ticks": args.turn_recovery_max_ticks,
                     "turn_recenter_attempted": recenter_attempted,
                     "turn_recenter_ticks": recenter_ticks,
+                    "turn_recenter_reorient_ticks": recenter_reorient_ticks,
                     "turn_recenter_error_m": recenter_error_m,
                     "configured_turn_recenter_max_ticks": args.turn_recenter_max_ticks,
+                    "configured_turn_recenter_reorient_ticks": args.turn_recenter_reorient_ticks,
                     "configured_turn_recenter_tolerance_m": args.turn_recenter_tolerance_m,
                     "macro_controller": args.macro_controller,
                     "last_velocity_target": last_velocity_target,
