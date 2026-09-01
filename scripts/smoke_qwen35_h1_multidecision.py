@@ -195,7 +195,13 @@ def main() -> None:
     # Macro completion can take hundreds of 20ms environment steps. Size the
     # episode from the requested bounded run so a silent time-limit reset can
     # never masquerade as continuous physical navigation.
-    cfg.episode_length_s = max(60.0, args.decisions * (args.max_ticks_per_macro + 12) * 0.02 * 1.1)
+    cfg.episode_length_s = max(
+        60.0,
+        args.decisions
+        * (args.max_ticks_per_macro + args.turn_recovery_settle_ticks + args.turn_recovery_max_ticks + 12)
+        * 0.02
+        * 1.1,
+    )
     cfg.commands.base_velocity.resampling_time_range = (1000.0, 1000.0)
     cfg.commands.base_velocity.rel_standing_envs = 0.0
     cfg.commands.base_velocity.rel_heading_envs = 0.0
@@ -258,7 +264,24 @@ def main() -> None:
                 joint_actions = locomotion(observations)
                 observations, _, done, _ = wrapped.step(joint_actions)
             if bool(done.any()):
-                raise RuntimeError("H1 environment terminated during a macro action; refusing to stitch reset state into one trajectory")
+                manager = env.termination_manager
+                term_values = {
+                    term_name: bool(manager.get_term(term_name)[0].item())
+                    for term_name in manager.active_terms
+                }
+                RUN_PROGRESS["termination"] = {
+                    "episode_length_s": cfg.episode_length_s,
+                    "simulation_ticks": simulation_ticks + 1,
+                    "time_out": bool(manager.time_outs[0].item()),
+                    "terminated": bool(manager.terminated[0].item()),
+                    "term_values": term_values,
+                    "root_pos_w": env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist(),
+                    "heading_w": float(env.scene["robot"].data.heading_w[0].item()),
+                }
+                raise RuntimeError(
+                    "H1 environment terminated during a macro action; refusing to stitch reset state into one trajectory; "
+                    f"terms={term_values}"
+                )
             if not torch.isfinite(env.scene["robot"].data.root_pos_w).all():
                 raise RuntimeError("non-finite H1 root state")
             simulation_ticks += 1
