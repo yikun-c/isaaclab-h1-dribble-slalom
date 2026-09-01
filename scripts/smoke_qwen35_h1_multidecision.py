@@ -57,6 +57,9 @@ parser.add_argument("--turn-recovery-max-ticks", type=int, default=0, help="Opti
 parser.add_argument("--turn-recenter-max-ticks", type=int, default=0, help="Optional bounded pose-feedback ticks to re-center inside the current cell after a turn.")
 parser.add_argument("--turn-recenter-reorient-ticks", type=int, default=0, help="Optional bounded walking-turn ticks to restore the logical heading after center-seeking motion.")
 parser.add_argument("--turn-hold-center", action="store_true", help="Blend in-cell pose feedback into every walking turn to prevent drift at its source.")
+parser.add_argument("--translation-recenter-max-ticks", type=int, default=0, help="Optional bounded centre-seeking recovery for a near-complete translation with excess cross-track error.")
+parser.add_argument("--translation-recenter-reorient-ticks", type=int, default=0, help="Optional bounded turn ticks to restore the translation heading after centre-seeking recovery.")
+parser.add_argument("--translation-recenter-trigger-m", type=float, default=0.0, help="Maximum cross-track error eligible for translation centre recovery; zero disables it.")
 parser.add_argument("--turn-recenter-tolerance-m", type=float, default=0.90, help="Maximum planar error from the current cell center after a turn re-center.")
 parser.add_argument("--feedback-max-lateral-mps", type=float, default=0.10, help="Bounded body-frame lateral correction for pose-feedback traversal.")
 parser.add_argument("--cross-track-tolerance-m", type=float, default=0.90, help="Maximum physical lateral residual before advancing the logical maze state.")
@@ -78,10 +81,14 @@ if min(
     args.turn_recovery_max_ticks,
     args.turn_recenter_max_ticks,
     args.turn_recenter_reorient_ticks,
+    args.translation_recenter_max_ticks,
+    args.translation_recenter_reorient_ticks,
 ) < 0:
     raise ValueError("turn recovery/re-center tick counts must be non-negative")
 if args.turn_recenter_tolerance_m <= 0.0:
     raise ValueError("turn re-center tolerance must be positive")
+if args.translation_recenter_trigger_m < 0.0:
+    raise ValueError("translation re-center trigger must be non-negative")
 if args.video_output:
     args.enable_cameras = True
 app_launcher = AppLauncher(args)
@@ -216,6 +223,8 @@ def main() -> None:
             + args.turn_recovery_max_ticks
             + args.turn_recenter_max_ticks
             + args.turn_recenter_reorient_ticks
+            + args.translation_recenter_max_ticks
+            + args.translation_recenter_reorient_ticks
             + 12
         )
         * 0.02
@@ -440,6 +449,57 @@ def main() -> None:
                             macro_ticks += 1
                         recovery_intervals += 1
                         next_settle_distance += args.forward_settle_distance
+                translation_recenter_attempted = False
+                translation_recenter_ticks = 0
+                translation_reorient_ticks = 0
+                translation_recenter_error_m = None
+                translation_recovery_eligible = (
+                    not physical_completed
+                    and args.translation_recenter_max_ticks > 0
+                    and args.translation_recenter_trigger_m > 0.0
+                    and progress >= target_forward - 0.25
+                    and abs(cross_track) <= args.translation_recenter_trigger_m
+                )
+                if translation_recovery_eligible:
+                    translation_recenter_attempted = True
+                    for _ in range(args.translation_recenter_max_ticks):
+                        root_before_command = env.scene["robot"].data.root_pos_w[0]
+                        current_xy = (float(root_before_command[0].item()), float(root_before_command[1].item()))
+                        center_heading = math.atan2(target_xy[1] - current_xy[1], target_xy[0] - current_xy[0])
+                        last_velocity_target = pose_feedback_velocity(
+                            target_xy=target_xy,
+                            target_yaw=center_heading,
+                            current_xy=current_xy,
+                            current_yaw=float(env.scene["robot"].data.heading_w[0].item()),
+                            max_forward_mps=0.20,
+                            max_lateral_mps=args.feedback_max_lateral_mps,
+                        ).as_tuple()
+                        apply_velocity(last_velocity_target)
+                        macro_ticks += 1
+                        translation_recenter_ticks += 1
+                        current = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
+                        moved_x, moved_y = current[0] - start_x, current[1] - start_y
+                        progress = moved_x * math.cos(world_yaw) + moved_y * math.sin(world_yaw)
+                        cross_track = -moved_x * math.sin(world_yaw) + moved_y * math.cos(world_yaw) - target_cross
+                        translation_recenter_error_m = math.dist((current[0], current[1]), target_xy)
+                        if progress >= target_forward - 0.25 and abs(cross_track) <= args.cross_track_tolerance_m:
+                            break
+                    if progress >= target_forward - 0.25 and abs(cross_track) <= args.cross_track_tolerance_m:
+                        for _ in range(args.translation_recenter_reorient_ticks):
+                            current_yaw = float(env.scene["robot"].data.heading_w[0].item())
+                            last_velocity_target = turn_feedback_velocity(
+                                current_yaw=current_yaw, target_yaw=world_yaw
+                            ).as_tuple()
+                            apply_velocity(last_velocity_target)
+                            macro_ticks += 1
+                            translation_reorient_ticks += 1
+                            if abs(wrapped_angle(world_yaw - float(env.scene["robot"].data.heading_w[0].item()))) <= args.turn_tolerance_rad:
+                                break
+                    physical_completed = (
+                        progress >= target_forward - 0.25
+                        and abs(cross_track) <= args.cross_track_tolerance_m
+                        and abs(wrapped_angle(world_yaw - float(env.scene["robot"].data.heading_w[0].item()))) <= args.turn_tolerance_rad
+                    )
                 macro_detail = {
                     "criterion": f"absolute_target_center_forward<=0.25m_and_cross<={args.cross_track_tolerance_m:.3f}m",
                     "signed_translation_m": progress,
@@ -456,6 +516,13 @@ def main() -> None:
                     "heading_correction_gain": args.heading_correction_gain,
                     "max_heading_offset_rad": args.max_heading_offset_rad,
                     "max_yaw_command_rps": max_yaw_command,
+                    "translation_recenter_attempted": translation_recenter_attempted,
+                    "translation_recenter_ticks": translation_recenter_ticks,
+                    "translation_recenter_reorient_ticks": translation_reorient_ticks,
+                    "translation_recenter_error_m": translation_recenter_error_m,
+                    "configured_translation_recenter_max_ticks": args.translation_recenter_max_ticks,
+                    "configured_translation_recenter_reorient_ticks": args.translation_recenter_reorient_ticks,
+                    "configured_translation_recenter_trigger_m": args.translation_recenter_trigger_m,
                 }
             else:
                 logical_after_turn = step(task, state, decision.action)
