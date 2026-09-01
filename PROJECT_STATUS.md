@@ -386,3 +386,10 @@ D:\\IsaacLab\\.venv\\Scripts\\python.exe scripts\\evaluate_qwen35_closed_loop.py
   --physical-wall-rays `
   --output artifacts\\maze\\eval_qwen35_closedloop_frontier_exitroute_guard_dev3_v1.json
 ```
+
+### Exit-route CPU verification — 2026-09-01
+
+- The restarted evaluation completed naturally after `379.10s`; `artifacts\\maze\\eval_qwen35_closedloop_frontier_exitroute_guard_dev3_v1.json` exists at 735,835 bytes with SHA-256 `36D0339453F02E9C569557D0D3257C767E3C955A8A02389F854CC6A7AE8281B1`. Its `.progress.json` sidecar says `complete, 3/3`, so it is accepted as a complete report rather than an interrupted partial.
+- Scope remains development-only, causal Qwen3.5 LoRA plus local-memory guard, with physical wall-ray booleans; no sealed final seeds were loaded. Results: seed 657 `81/81` success, seed 860 `129/129`, seed 1029 `150/150`; aggregate `3/3`, 360 decisions, 100% valid structured output, zero mean collisions, 4.67 mean repeated-state observations, and 172 guard overrides.
+- The new `route_known_exit_after_checkpoint` reason was invoked zero times on these three CPU traces (172 overrides were `frontier_recovery`, 3 were `goal_reached`), and all aggregate metrics match the prior frontier-guard report. This is correct negative attribution: the CPU traces did not visit the exit before the checkpoint, so they cannot measure a repair designed for the distinct interrupted physical trajectory. The physical rerun is still required to test that path-specific recovery.
+- Evaluation resilience improvement: `scripts\\evaluate_qwen35_closed_loop.py` now writes `<output>.progress.json` after every completed episode and marks it complete only after the authoritative final JSON is written. Source commit `d35a377` was pushed to `origin/feature/llm-maze-agent` before this completed artifact.
