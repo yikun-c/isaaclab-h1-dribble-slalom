@@ -127,3 +127,36 @@ def turn_feedback_velocity(
     requested_magnitude = min(max_yaw_rps, max(min_yaw_rps, 1.10 * abs(yaw_error)))
     yaw_rate = math.copysign(requested_magnitude, yaw_error) if yaw_error else 0.0
     return MacroVelocity(walking_forward_mps, 0.0, yaw_rate)
+
+
+def turn_hold_center_velocity(
+    *,
+    target_xy: tuple[float, float],
+    target_yaw: float,
+    current_xy: tuple[float, float],
+    current_yaw: float,
+    minimum_walking_forward_mps: float = 0.08,
+    max_lateral_mps: float = 0.10,
+) -> MacroVelocity:
+    """Turn while feeding measured in-cell drift back into the base velocity.
+
+    The official H1 policy needs a small walking command to rotate, but a
+    constant forward command lets the root drift across a maze cell.  Blend a
+    centre-seeking translational command with the measured yaw turn so drift is
+    corrected during the turn rather than via a late rescue macro.
+    """
+    if minimum_walking_forward_mps <= 0.0 or max_lateral_mps <= 0.0:
+        raise ValueError("turn-hold-center velocity limits must be positive")
+    centre = pose_feedback_velocity(
+        target_xy=target_xy,
+        target_yaw=target_yaw,
+        current_xy=current_xy,
+        current_yaw=current_yaw,
+        max_forward_mps=0.20,
+        max_lateral_mps=max_lateral_mps,
+    )
+    yaw = turn_feedback_velocity(current_yaw=current_yaw, target_yaw=target_yaw)
+    forward = centre.linear_x_mps
+    if abs(forward) < minimum_walking_forward_mps:
+        forward = minimum_walking_forward_mps
+    return MacroVelocity(forward, centre.linear_y_mps, yaw.angular_z_rps)

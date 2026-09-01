@@ -56,6 +56,7 @@ parser.add_argument("--turn-recovery-settle-ticks", type=int, default=0, help="O
 parser.add_argument("--turn-recovery-max-ticks", type=int, default=0, help="Optional extra bounded ticks for the failed-turn retry; zero disables recovery.")
 parser.add_argument("--turn-recenter-max-ticks", type=int, default=0, help="Optional bounded pose-feedback ticks to re-center inside the current cell after a turn.")
 parser.add_argument("--turn-recenter-reorient-ticks", type=int, default=0, help="Optional bounded walking-turn ticks to restore the logical heading after center-seeking motion.")
+parser.add_argument("--turn-hold-center", action="store_true", help="Blend in-cell pose feedback into every walking turn to prevent drift at its source.")
 parser.add_argument("--turn-recenter-tolerance-m", type=float, default=0.90, help="Maximum planar error from the current cell center after a turn re-center.")
 parser.add_argument("--feedback-max-lateral-mps", type=float, default=0.10, help="Bounded body-frame lateral correction for pose-feedback traversal.")
 parser.add_argument("--cross-track-tolerance-m", type=float, default=0.90, help="Maximum physical lateral residual before advancing the logical maze state.")
@@ -150,6 +151,7 @@ def main() -> None:
         steered_target_yaw,
         step,
         turn_feedback_velocity,
+        turn_hold_center_velocity,
         velocity_for_grid_action,
     )
     from maze_agent.core import reset
@@ -467,9 +469,20 @@ def main() -> None:
                 recovery_ticks = 0
                 for _ in range(args.max_ticks_per_macro):
                     if args.macro_controller == "pose-feedback":
-                        last_velocity_target = turn_feedback_velocity(
-                            current_yaw=float(env.scene["robot"].data.heading_w[0].item()), target_yaw=target_yaw
-                        ).as_tuple()
+                        current_yaw = float(env.scene["robot"].data.heading_w[0].item())
+                        if args.turn_hold_center:
+                            root_before_command = env.scene["robot"].data.root_pos_w[0]
+                            last_velocity_target = turn_hold_center_velocity(
+                                target_xy=(state.position[0] * args.cell_size, state.position[1] * args.cell_size),
+                                target_yaw=target_yaw,
+                                current_xy=(float(root_before_command[0].item()), float(root_before_command[1].item())),
+                                current_yaw=current_yaw,
+                                max_lateral_mps=args.feedback_max_lateral_mps,
+                            ).as_tuple()
+                        else:
+                            last_velocity_target = turn_feedback_velocity(
+                                current_yaw=current_yaw, target_yaw=target_yaw
+                            ).as_tuple()
                     apply_velocity(last_velocity_target)
                     macro_ticks += 1
                     current_yaw = float(env.scene["robot"].data.heading_w[0].item())
@@ -574,6 +587,7 @@ def main() -> None:
                     "turn_recenter_error_m": recenter_error_m,
                     "configured_turn_recenter_max_ticks": args.turn_recenter_max_ticks,
                     "configured_turn_recenter_reorient_ticks": args.turn_recenter_reorient_ticks,
+                    "turn_hold_center": args.turn_hold_center,
                     "configured_turn_recenter_tolerance_m": args.turn_recenter_tolerance_m,
                     "macro_controller": args.macro_controller,
                     "last_velocity_target": last_velocity_target,
