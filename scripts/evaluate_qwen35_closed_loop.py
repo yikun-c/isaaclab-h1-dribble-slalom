@@ -169,6 +169,18 @@ def main() -> None:
                     "events": events,
                 }
             )
+            # Preserve completed episodes if a desktop-session interruption
+            # occurs during a later generation call.  The final report remains
+            # authoritative only when this sidecar says ``complete``.
+            write_json_atomic(
+                args.output.with_suffix(args.output.suffix + ".progress.json"),
+                {
+                    "status": "running",
+                    "episodes_requested": len(seeds),
+                    "episodes_completed": len(episodes),
+                    "episodes_detail": episodes,
+                },
+            )
     elapsed = time.perf_counter() - total_started
     decisions = sum(episode["decisions"] for episode in episodes)
     report = {
@@ -191,6 +203,15 @@ def main() -> None:
         "episodes_detail": episodes,
     }
     write_json_atomic(args.output, report)
+    write_json_atomic(
+        args.output.with_suffix(args.output.suffix + ".progress.json"),
+        {
+            "status": "complete",
+            "episodes_requested": len(seeds),
+            "episodes_completed": len(episodes),
+            "report_path": str(args.output.resolve()),
+        },
+    )
     print(json.dumps({key: value for key, value in report.items() if key != "episodes_detail"}, ensure_ascii=False, sort_keys=True))
     del model, base
     torch.cuda.empty_cache()
