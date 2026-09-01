@@ -468,6 +468,18 @@ def main() -> None:
                     "last_root_w": event["physical_macro"]["after_root_w"],
                 }
             )
+            write_json_atomic(
+                args.output.with_suffix(".progress.json"),
+                {
+                    "status": "running",
+                    "planner_mode": "frozen_qwen_guard_trace_replay" if replay_events is not None else "live_qwen_generation",
+                    "completed_macros": sum(item["physical_macro"]["completed"] for item in events),
+                    "last_event": event,
+                    "logical_position": list(state.position),
+                    "logical_heading": state.heading.value,
+                    "logical_result": state.last_result,
+                },
+            )
             if not physical_completed:
                 break
         report = {
@@ -509,6 +521,15 @@ def main() -> None:
         elif args.video_output:
             raise RuntimeError("camera recorder produced no non-black frame")
         write_json_atomic(args.output, report)
+        write_json_atomic(
+            args.output.with_suffix(".progress.json"),
+            {
+                "status": "complete",
+                "completed_macros": report["completed_macros"],
+                "logical_success": report["final_logical_success"],
+                "result_path": str(args.output.resolve()),
+            },
+        )
         print(json.dumps({key: value for key, value in report.items() if key != "events"}, ensure_ascii=False, sort_keys=True), flush=True)
     finally:
         del model, base
