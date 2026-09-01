@@ -117,7 +117,7 @@ def turn_feedback_velocity(
     current_yaw: float,
     target_yaw: float,
     walking_forward_mps: float = 0.105,
-    min_yaw_rps: float = 0.40,
+    min_yaw_rps: float = 0.55,
     max_yaw_rps: float = 0.55,
 ) -> MacroVelocity:
     """Bounded walking turn for the published H1 policy's turn behavior."""
