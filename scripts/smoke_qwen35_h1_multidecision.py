@@ -452,6 +452,7 @@ def main() -> None:
                 translation_recenter_attempted = False
                 translation_recenter_ticks = 0
                 translation_reorient_ticks = 0
+                translation_reorient_recovery_ticks = 0
                 translation_recenter_error_m = None
                 translation_recovery_eligible = (
                     not physical_completed
@@ -495,6 +496,26 @@ def main() -> None:
                             translation_reorient_ticks += 1
                             if abs(wrapped_angle(world_yaw - float(env.scene["robot"].data.heading_w[0].item()))) <= args.turn_tolerance_rad:
                                 break
+                        if abs(wrapped_angle(world_yaw - float(env.scene["robot"].data.heading_w[0].item()))) > args.turn_tolerance_rad:
+                            for _ in range(args.turn_recovery_settle_ticks):
+                                apply_velocity((0.0, 0.0, 0.0))
+                                macro_ticks += 1
+                                translation_reorient_recovery_ticks += 1
+                            for _ in range(args.turn_recovery_max_ticks):
+                                current_yaw = float(env.scene["robot"].data.heading_w[0].item())
+                                last_velocity_target = turn_feedback_velocity(
+                                    current_yaw=current_yaw, target_yaw=world_yaw
+                                ).as_tuple()
+                                apply_velocity(last_velocity_target)
+                                macro_ticks += 1
+                                translation_reorient_recovery_ticks += 1
+                                if abs(wrapped_angle(world_yaw - float(env.scene["robot"].data.heading_w[0].item()))) <= args.turn_tolerance_rad:
+                                    break
+                    current = env.scene["robot"].data.root_pos_w[0].detach().cpu().tolist()
+                    moved_x, moved_y = current[0] - start_x, current[1] - start_y
+                    progress = moved_x * math.cos(world_yaw) + moved_y * math.sin(world_yaw)
+                    cross_track = -moved_x * math.sin(world_yaw) + moved_y * math.cos(world_yaw) - target_cross
+                    translation_recenter_error_m = math.dist((current[0], current[1]), target_xy)
                     physical_completed = (
                         progress >= target_forward - 0.25
                         and abs(cross_track) <= args.cross_track_tolerance_m
@@ -519,6 +540,7 @@ def main() -> None:
                     "translation_recenter_attempted": translation_recenter_attempted,
                     "translation_recenter_ticks": translation_recenter_ticks,
                     "translation_recenter_reorient_ticks": translation_reorient_ticks,
+                    "translation_recenter_reorient_recovery_ticks": translation_reorient_recovery_ticks,
                     "translation_recenter_error_m": translation_recenter_error_m,
                     "configured_translation_recenter_max_ticks": args.translation_recenter_max_ticks,
                     "configured_translation_recenter_reorient_ticks": args.translation_recenter_reorient_ticks,
