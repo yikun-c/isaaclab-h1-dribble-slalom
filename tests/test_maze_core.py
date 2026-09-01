@@ -139,6 +139,7 @@ def test_h1_pose_feedback_adapter_tracks_world_target_in_body_frame() -> None:
     assert turn.angular_z_rps > 0.0
     late_turn = turn_feedback_velocity(current_yaw=1.36, target_yaw=math.pi / 2.0)
     assert late_turn.angular_z_rps >= 0.40
+    assert late_turn.linear_x_mps == 0.055
 
 
 def test_local_memory_guard_prevents_wall_actions_and_marks_return_edge_executed() -> None:

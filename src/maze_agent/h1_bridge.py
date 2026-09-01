@@ -126,4 +126,8 @@ def turn_feedback_velocity(
     yaw_error = wrapped_angle(target_yaw - current_yaw)
     requested_magnitude = min(max_yaw_rps, max(min_yaw_rps, 1.10 * abs(yaw_error)))
     yaw_rate = math.copysign(requested_magnitude, yaw_error) if yaw_error else 0.0
-    return MacroVelocity(walking_forward_mps, 0.0, yaw_rate)
+    # The published velocity policy needs some forward motion to turn, but a
+    # full walking-speed command near the target can drift into a corridor wall.
+    # Slow only during the final angular approach; do not claim an in-place turn.
+    forward_speed = walking_forward_mps if abs(yaw_error) > 0.35 else min(walking_forward_mps, 0.055)
+    return MacroVelocity(forward_speed, 0.0, yaw_rate)
