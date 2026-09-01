@@ -472,3 +472,10 @@ D:\\IsaacLab\\.venv\\Scripts\\python.exe scripts\\evaluate_qwen35_closed_loop.py
 
 - The recovered 180-step gate made the macro-160 translation position and cross-track gates pass, but still marked the macro incomplete after heading recovery. Diagnosis: recovery used the travel-vector yaw (west) for `BACKTRACK`, whereas the action contract requires preserving the robot's logical body heading (east) and using negative base-x to travel backward. The failure is therefore an executor-contract bug, not a new locomotion instability.
 - The translation recovery now restores `GRID_HEADING_WORLD_YAW[state.heading]` after any centre-seeking motion, including BACKTRACK, and logs that body yaw. Source compiles and `24 passed` CPU tests. The next versioned 180-step physical gate validates this exact macro-160 case before another full run.
+
+### Accepted 180-step translation-recovery gate — 2026-09-02
+
+- `artifacts\\h1\\qwen35_h1_live_frontier_exitroute_translationrecovery_seed657_cell48_dev180_v3.json` passed naturally: 180 requested / 180 completed real H1 macros / 180 events, result `QWEN35_H1_MULTIDECISION_SMOKE_OK`, SHA-256 `E2CE169AB74F73074B105A7174730C959ED290CF05A9025D2CD188874306C115`. It is live Qwen3.5 plus local-memory guard, no replay, 4.8m cells, official rough H1 checkpoint.
+- The former macro-160 boundary now passed: translation centre recovery used 145 ticks, restored logical body yaw `0.0rad` in 15 ticks, and ended with cross-track `0.8927m`, centre error `0.8985m`, within the unchanged 0.90m gate. No contact, reset, timeout or fall occurred. This establishes a continuous low-level controller across the formerly distinct turn, drift, re-centering, and backtrack boundaries.
+- Scope remains a low-level development gate: final logical state `(5,5)`, checkpoint not complete. It is not an end-to-end maze success or a sealed evaluation result.
+- Next authorized physical run is a versioned 300-decision **live** Qwen/H1 closed loop using turn-hold-centre and translation recovery, with the original semantic goal blue → exit → STOP. Only a terminal `final_logical_success=true` permits recording/final video work.
