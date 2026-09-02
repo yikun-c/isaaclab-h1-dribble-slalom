@@ -159,8 +159,17 @@ def guard_action(
         # edges rather than spending the remaining budget on unrelated frontier
         # discovery.  This is still a local-memory guard, not global planning.
         exit_route = _known_landmark_recovery_action(state, memory, "exit")
-        if exit_route is not None and exit_route is not proposed:
-            return GuardedAction(exit_route, True, "route_known_exit_after_checkpoint")
+        if exit_route is not None:
+            # This route is a higher-priority safety/goal constraint than the
+            # revisit heuristic below.  Returning it even when Qwen proposed
+            # the same primitive is important: otherwise the later revisit
+            # recovery can replace a correct MOVE_FORWARD with a turn and
+            # make the agent oscillate at the checkpoint.
+            return GuardedAction(
+                exit_route,
+                exit_route is not proposed,
+                "route_known_exit_after_checkpoint",
+            )
     local = observe(task, state)
     blocked = (proposed is Action.MOVE_FORWARD and not local.front_open) or (
         proposed is Action.BACKTRACK and not local.rear_open

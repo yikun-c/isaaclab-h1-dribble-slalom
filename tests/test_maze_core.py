@@ -186,6 +186,13 @@ def test_guard_routes_to_previously_observed_exit_only_after_checkpoint() -> Non
     )
     assert guarded.action is expected
     assert guarded.overridden and guarded.reason == "route_known_exit_after_checkpoint"
+    # A matching Qwen proposal must still retain the route priority. Otherwise
+    # the later revisit heuristic can replace this forward edge and create a
+    # checkpoint turn-loop.
+    matching = guard_action(task, checkpoint_ready, memory, expected)
+    assert matching.action is expected
+    assert not matching.overridden
+    assert matching.reason == "route_known_exit_after_checkpoint"
 
 
 def test_physical_wall_ray_ranges_match_each_cell_local_topology() -> None:
